@@ -86,7 +86,6 @@ export function Architecture() {
                <div className="relative w-full max-w-[400px] mx-auto perspective-1000">
                  {LAYERS.map((layer, idx) => {
                    const isActive = activeLayer === layer.id;
-                   const isPast = LAYERS.findIndex(l => l.id === activeLayer) > idx;
 
                    return (
                      <motion.div

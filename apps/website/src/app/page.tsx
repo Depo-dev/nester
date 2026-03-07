@@ -4,7 +4,7 @@ import { ImageCarousel } from "@/components/image-carousel";
 // import { FeaturesFloat } from "@/components/features-float";
 import { Ecosystem } from "@/components/ecosystem";
 import { AiLayer } from "@/components/ai-layer";
-import { Architecture } from "@/components/architecture";
+// import { Architecture } from "@/components/architecture";
 import { HowItWorks } from "@/components/how-it-works";
 
 export default function Home() {

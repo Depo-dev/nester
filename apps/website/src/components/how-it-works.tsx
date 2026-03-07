@@ -67,23 +67,7 @@ function Cursor({ x, y, clicking }: { x: number; y: number; clicking: boolean })
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────
-   UTILITY: Flowing dot along an SVG path
-───────────────────────────────────────────────────────────────── */
-function FlowingDot({ d, delay, duration, color }: { d: string; delay: number; duration: number; color?: string }) {
-  return (
-    <motion.circle r="3" fill={color ?? "#111"} opacity={0.7}>
-      <animateMotion
-        dur={`${duration}s`}
-        repeatCount="indefinite"
-        begin={`${delay}s`}
-        fill="freeze"
-      >
-        <mpath href={`#path-${d.replace(/\s/g, "")}`} />
-      </animateMotion>
-    </motion.circle>
-  );
-}
+
 
 /* ─────────────────────────────────────────────────────────────────
    PANEL 1 — DEPOSIT  (cursor clicks vault → bars fill → confirm)
@@ -278,8 +262,10 @@ function OptimizeScene({ playing }: { playing: boolean }) {
       tick++;
       setApyIdx((p) => (p + 1) % blendApy.length);
       if (tick >= 6) clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, 900);
     return () => { clearInterval(iv); [t1, t2].forEach(clearTimeout); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing]);
 
   return (
