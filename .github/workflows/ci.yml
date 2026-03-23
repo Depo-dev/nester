@@ -3,8 +3,16 @@ name: CI
 on:
   push:
     branches: [main, dev]
+    paths:
+      - 'packages/contracts/**'
+      - '.github/workflows/ci.yml'
+      - 'Makefile'
   pull_request:
     branches: [main, dev]
+    paths:
+      - 'packages/contracts/**'
+      - '.github/workflows/ci.yml'
+      - 'Makefile'
 
 jobs:
   website:
@@ -95,3 +103,50 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+  soroban-contracts:
+    name: Soroban Contracts (Rust/WASM)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          override: true
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Format Check
+        run: make fmt-check
+
+      - name: Clippy
+        run: make clippy
+
+      - name: Build Contracts
+        run: make build
+
+      - name: Run Unit Tests
+        run: make test
+
+      - name: Run Integration Tests
+        run: make integration-test
+
+      - name: Upload WASM Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: soroban-wasm
+          path: |
+            target/wasm32-unknown-unknown/release/*.wasm
