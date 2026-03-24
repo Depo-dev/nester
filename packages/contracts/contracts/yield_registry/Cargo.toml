@@ -5,12 +5,15 @@ edition = "2021"
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+# Use a clean crate name so allocation_strategy can import it as `yield_registry`.
+name = "yield_registry"
+crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
 nester-common = { path = "../../libs/common" }
+nester-access-control = { path = "../access_control" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
