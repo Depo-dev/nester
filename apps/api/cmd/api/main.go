@@ -50,10 +50,15 @@ func run() error {
 	vaultService := service.NewVaultService(vaultRepository)
 	vaultHandler := handler.NewVaultHandler(vaultService)
 
+	settlementRepository := postgres.NewSettlementRepository(db)
+	settlementService := service.NewSettlementService(settlementRepository)
+	settlementHandler := handler.NewSettlementHandler(settlementService)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler(db, cfg.Database().ConnectionTimeout()))
 	mux.HandleFunc("GET /healthz", healthHandler(db, cfg.Database().ConnectionTimeout()))
 	vaultHandler.Register(mux)
+	settlementHandler.Register(mux)
 
 	server := &http.Server{
 		Addr:         cfg.Server().Address(),

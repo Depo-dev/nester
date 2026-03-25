@@ -74,6 +74,7 @@ export function Navbar() {
                                     label: "Settlements",
                                     href: "/dashboard/settlements",
                                 },
+                                { label: "History", href: "/dashboard/history" },
                             ].map((item) => (
                                 <Link
                                     key={item.label}

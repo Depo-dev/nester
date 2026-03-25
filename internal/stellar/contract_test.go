@@ -10,39 +10,39 @@ import (
 
 func TestIsRetryableError(t *testing.T) {
 	tests := []struct {
-		name    string
-		err     error
-		want    bool
+		name string
+		err  error
+		want bool
 	}{
 		{
-			name:    "nil error",
-			err:     nil,
-			want:    false,
+			name: "nil error",
+			err:  nil,
+			want: false,
 		},
 		{
-			name:    "timeout error",
-			err:     errors.New("context deadline exceeded"),
-			want:    false, // "timeout" is not present, but we can adjust
+			name: "timeout error",
+			err:  errors.New("context deadline exceeded"),
+			want: false, // "timeout" is not present, but we can adjust
 		},
 		{
-			name:    "connection error",
-			err:     errors.New("connection refused"),
-			want:    true,
+			name: "connection error",
+			err:  errors.New("connection refused"),
+			want: true,
 		},
 		{
-			name:    "rate limited",
-			err:     errors.New("rate limited"),
-			want:    true,
+			name: "rate limited",
+			err:  errors.New("rate limited"),
+			want: true,
 		},
 		{
-			name:    "503 service unavailable",
-			err:     errors.New("503 Service Unavailable"),
-			want:    true,
+			name: "503 service unavailable",
+			err:  errors.New("503 Service Unavailable"),
+			want: true,
 		},
 		{
-			name:    "permanent error",
-			err:     errors.New("invalid contract"),
-			want:    false,
+			name: "permanent error",
+			err:  errors.New("invalid contract"),
+			want: false,
 		},
 	}
 
@@ -208,7 +208,7 @@ func TestMaxRetriesExceeded(t *testing.T) {
 		networkID: "Test SDF Network ; September 2015",
 	}
 
-	invoker := NewContractInvoker(client)
+	_ = NewContractInvoker(client)
 
 	// With nil transaction, submit will fail
 	// Verify we respect max retries

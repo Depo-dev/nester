@@ -8,9 +8,9 @@ import (
 type Network string
 
 const (
-	Testnet    Network = "testnet"
-	Mainnet    Network = "mainnet"
-	Futurenet  Network = "futurenet"
+	Testnet   Network = "testnet"
+	Mainnet   Network = "mainnet"
+	Futurenet Network = "futurenet"
 )
 
 // Config holds Stellar client configuration
@@ -60,12 +60,12 @@ type SimulationResult struct {
 
 // Event represents a Soroban contract event
 type Event struct {
-	ContractID   string
-	EventType    string
-	BlockNumber  uint64
+	ContractID    string
+	EventType     string
+	BlockNumber   uint64
 	TransactionID string
-	Data         map[string]interface{}
-	Timestamp    int64
+	Data          map[string]interface{}
+	Timestamp     int64
 }
 
 // HealthCheck represents the health status of the Stellar connection

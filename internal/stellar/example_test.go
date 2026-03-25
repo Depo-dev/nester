@@ -177,8 +177,8 @@ func ExampleEventPoller_Subscribe() {
 	fmt.Println("Event watching stopped")
 }
 
-// ExampleEventPoller_Stream demonstrates event streaming
-func ExampleEventPoller_Stream() {
+// ExampleEventPoller_NewEventStream demonstrates event streaming
+func ExampleEventPoller_NewEventStream() {
 	cfg := Config{
 		Network:      Testnet,
 		RPCURL:       "https://soroban-testnet.stellar.org",
@@ -214,8 +214,8 @@ func ExampleEventPoller_Stream() {
 	stream.Close()
 }
 
-// ExampleContractInvoker_Simulate demonstrates contract simulation
-func ExampleContractInvoker_Simulate() {
+// ExampleContractInvoker_SimulateContract demonstrates contract simulation
+func ExampleContractInvoker_SimulateContract() {
 	cfg := Config{
 		Network:      Testnet,
 		RPCURL:       "https://soroban-testnet.stellar.org",

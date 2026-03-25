@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/stellar/go/clients/horizonclient"
-	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
 )
 
 // ContractInvoker handles all contract invocations and simulations
@@ -110,9 +108,7 @@ func (ci *ContractInvoker) buildContractInvocation(
 	// 3. Handle authorization structures if needed
 
 	// Placeholder implementation
-	_ = txnbuild.Network{
-		Passphrase: ci.client.networkID,
-	}
+	_ = ci.client.networkID
 
 	// This would normally return a properly constructed transaction
 	// For now, returning nil as we'll need the actual Soroban RPC setup

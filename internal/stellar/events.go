@@ -81,7 +81,7 @@ func (ep *EventPoller) PollEvents(
 	// In production, this would call the Soroban RPC getEvents endpoint
 	// For now, returning empty slice as placeholder
 
-	var events []Event
+	events := make([]Event, 0)
 
 	// Soroban RPC call would look like:
 	// events, err := ep.client.rpcClient.GetEvents(ctx, GetEventsRequest{

@@ -1,8 +1,15 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
+    contract, contractimpl, contracttype, panic_with_error, symbol_short, token, Address, Env,
 };
+
+use nester_access_control::{AccessControl, Role};
+use nester_common::ContractError;
+
+// ---------------------------------------------------------------------------
+// Storage
+// ---------------------------------------------------------------------------
 
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,27 +21,19 @@ pub enum VaultStatus {
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
-    Admin,
     Token,
     Status,
     Balance(Address),
     TotalDeposits,
 }
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub enum VaultError {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    InsufficientBalance = 4,
-    InvalidAmount = 5,
-    VaultPaused = 6,
-}
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 fn require_initialized(env: &Env) {
-    if !env.storage().instance().has(&DataKey::Admin) {
-        panic_with_error!(env, VaultError::NotInitialized);
+    if !env.storage().instance().has(&DataKey::Token) {
+        panic_with_error!(env, ContractError::NotInitialized);
     }
 }
 
@@ -45,14 +44,7 @@ fn require_active(env: &Env) {
         .get(&DataKey::Status)
         .unwrap_or(VaultStatus::Paused);
     if status != VaultStatus::Active {
-        panic_with_error!(env, VaultError::VaultPaused);
-    }
-}
-
-fn require_admin(env: &Env, caller: &Address) {
-    let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
-    if *caller != admin {
-        panic_with_error!(env, VaultError::Unauthorized);
+        panic_with_error!(env, ContractError::InvalidOperation);
     }
 }
 
@@ -77,24 +69,24 @@ fn get_total(env: &Env) -> i128 {
 }
 
 fn set_total(env: &Env, amount: i128) {
-    env.storage().instance().set(&DataKey::TotalDeposits, &amount);
+    env.storage()
+        .instance()
+        .set(&DataKey::TotalDeposits, &amount);
 }
 
-use soroban_sdk::panic_with_error;
+// ---------------------------------------------------------------------------
+// Contract
+// ---------------------------------------------------------------------------
 
 #[contract]
 pub struct VaultContract;
 
 #[contractimpl]
 impl VaultContract {
+    /// Initialise the vault, setting `admin` as the sole Admin.
     pub fn initialize(env: Env, admin: Address, token_address: Address) {
-        if env.storage().instance().has(&DataKey::Admin) {
-            panic_with_error!(&env, VaultError::AlreadyInitialized);
-        }
-
-        admin.require_auth();
-
-        env.storage().instance().set(&DataKey::Admin, &admin);
+        // AccessControl::initialize handles AlreadyInitialized guard and require_auth
+        AccessControl::initialize(&env, &admin);
         env.storage()
             .instance()
             .set(&DataKey::Token, &token_address);
@@ -106,12 +98,65 @@ impl VaultContract {
             .set(&DataKey::TotalDeposits, &0_i128);
     }
 
+    // -----------------------------------------------------------------------
+    // Admin operations
+    // -----------------------------------------------------------------------
+
+    /// Pause all vault operations. Requires [`Role::Admin`].
+    pub fn pause(env: Env, caller: Address) {
+        require_initialized(&env);
+        caller.require_auth();
+        AccessControl::require_role(&env, &caller, Role::Admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::Status, &VaultStatus::Paused);
+        env.events()
+            .publish((symbol_short!("paused"), caller), ());
+    }
+
+    /// Resume vault operations. Requires [`Role::Admin`].
+    pub fn unpause(env: Env, caller: Address) {
+        require_initialized(&env);
+        caller.require_auth();
+        AccessControl::require_role(&env, &caller, Role::Admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::Status, &VaultStatus::Active);
+        env.events()
+            .publish((symbol_short!("unpaused"), caller), ());
+    }
+
+    /// Grant `role` to `grantee`. Requires caller to be an Admin.
+    pub fn grant_role(env: Env, grantor: Address, grantee: Address, role: Role) {
+        AccessControl::grant_role(&env, &grantor, &grantee, role);
+    }
+
+    /// Revoke `role` from `target`. Requires caller to be an Admin.
+    pub fn revoke_role(env: Env, revoker: Address, target: Address, role: Role) {
+        AccessControl::revoke_role(&env, &revoker, &target, role);
+    }
+
+    /// Propose an admin transfer (step 1). Requires caller to be an Admin.
+    pub fn transfer_admin(env: Env, current_admin: Address, new_admin: Address) {
+        AccessControl::transfer_admin(&env, &current_admin, &new_admin);
+    }
+
+    /// Accept a proposed admin transfer (step 2). Caller must be the pending new admin.
+    pub fn accept_admin(env: Env, new_admin: Address) {
+        AccessControl::accept_admin(&env, &new_admin);
+    }
+
+    // -----------------------------------------------------------------------
+    // Core vault operations
+    // -----------------------------------------------------------------------
+
+    /// Deposit funds into the vault.
     pub fn deposit(env: Env, user: Address, amount: i128) -> i128 {
         require_initialized(&env);
         require_active(&env);
 
         if amount <= 0 {
-            panic_with_error!(&env, VaultError::InvalidAmount);
+            panic_with_error!(&env, ContractError::InvalidAmount);
         }
 
         user.require_auth();
@@ -135,18 +180,19 @@ impl VaultContract {
         new_balance
     }
 
+    /// Withdraw funds from the vault.
     pub fn withdraw(env: Env, user: Address, amount: i128) -> i128 {
         require_initialized(&env);
 
         if amount <= 0 {
-            panic_with_error!(&env, VaultError::InvalidAmount);
+            panic_with_error!(&env, ContractError::InvalidAmount);
         }
 
         user.require_auth();
 
         let current_balance = get_balance(&env, &user);
         if amount > current_balance {
-            panic_with_error!(&env, VaultError::InsufficientBalance);
+            panic_with_error!(&env, ContractError::InsufficientBalance);
         }
 
         let token_address: Address = env.storage().instance().get(&DataKey::Token).unwrap();
@@ -168,6 +214,10 @@ impl VaultContract {
         new_balance
     }
 
+    // -----------------------------------------------------------------------
+    // View functions
+    // -----------------------------------------------------------------------
+
     pub fn get_balance(env: Env, user: Address) -> i128 {
         require_initialized(&env);
         get_balance(&env, &user)
@@ -176,24 +226,6 @@ impl VaultContract {
     pub fn get_total_deposits(env: Env) -> i128 {
         require_initialized(&env);
         get_total(&env)
-    }
-
-    pub fn pause(env: Env, admin: Address) {
-        require_initialized(&env);
-        admin.require_auth();
-        require_admin(&env, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::Status, &VaultStatus::Paused);
-    }
-
-    pub fn unpause(env: Env, admin: Address) {
-        require_initialized(&env);
-        admin.require_auth();
-        require_admin(&env, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::Status, &VaultStatus::Active);
     }
 
     pub fn get_status(env: Env) -> VaultStatus {
@@ -208,7 +240,19 @@ impl VaultContract {
         require_initialized(&env);
         env.storage().instance().get(&DataKey::Token).unwrap()
     }
+
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get::<_, VaultStatus>(&DataKey::Status)
+            .map(|s| s == VaultStatus::Paused)
+            .unwrap_or(true)
+    }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod test;

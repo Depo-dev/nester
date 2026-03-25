@@ -5,16 +5,17 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/stellar/go/clients/horizonclient"
-	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go-stellar-sdk/clients/horizonclient"
+	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
 )
 
 // Client wraps the Stellar SDK and provides domain-specific operations
 type Client struct {
-	config         Config
-	horizon        *horizonclient.Client
-	networkID      string
-	sourceAccount  *txnbuild.SimpleAccount
+	config        Config
+	horizon       *horizonclient.Client
+	networkID     string
+	sourceAccount *txnbuild.SimpleAccount
 }
 
 // NewClient initializes a Stellar client with the given configuration
@@ -39,11 +40,11 @@ func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 
 	// Initialize Horizon client for queries
 	horizon := &horizonclient.Client{
-		URL: cfg.RPCURL,
+		HorizonURL: cfg.RPCURL,
 	}
 
 	// Validate connection
-	if err := horizon.Health(ctx); err != nil {
+	if _, err := horizon.Root(); err != nil {
 		return nil, fmt.Errorf("failed to connect to Stellar network: %w", err)
 	}
 
@@ -71,7 +72,7 @@ func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 func (c *Client) Health(ctx context.Context) (*HealthCheck, error) {
 	start := time.Now()
 
-	err := c.horizon.Health(ctx)
+	_, err := c.horizon.Root()
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
@@ -91,16 +92,16 @@ func (c *Client) Health(ctx context.Context) (*HealthCheck, error) {
 }
 
 // getNetworkID returns the network passphrase for the given network
-func getNetworkID(network Network) string {
-	switch network {
+func getNetworkID(n Network) string {
+	switch n {
 	case Testnet:
-		return txnbuild.StellarTestnet
+		return network.TestNetworkPassphrase
 	case Mainnet:
-		return txnbuild.StellarPublicNet
+		return network.PublicNetworkPassphrase
 	case Futurenet:
-		return txnbuild.StellarFuturenet
+		return network.FutureNetworkPassphrase
 	default:
-		return txnbuild.StellarTestnet
+		return network.TestNetworkPassphrase
 	}
 }
 

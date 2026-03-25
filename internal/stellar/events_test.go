@@ -170,9 +170,8 @@ func TestEventPoller_DispatchEvents(t *testing.T) {
 	client := &Client{}
 	poller := NewEventPoller(client)
 
-	eventReceived := false
 	listener := func(event *Event) {
-		eventReceived = true
+		_ = event
 	}
 
 	err := poller.Subscribe("CONTRACT123", listener)

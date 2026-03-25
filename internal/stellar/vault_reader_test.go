@@ -173,7 +173,7 @@ func TestAllocation_Creation(t *testing.T) {
 		ContractID:   "TEST123",
 		SourceName:   "Aave",
 		Amount:       decimal.NewFromInt(500),
-		APY:          decimal.NewFromString("0.08"),
+		APY:          decimal.RequireFromString("0.08"),
 		AllocationID: "alloc-1",
 	}
 
