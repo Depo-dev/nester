@@ -196,6 +196,7 @@ mod tests {
         assert!(client.is_paused());
 
         client.unpause(&admin);
+        assert!(!client.is_paused());
         client.unpause(&admin);
         assert!(!client.is_paused());
     }
@@ -258,7 +259,24 @@ mod tests {
     }
 
     #[test]
-    fn cross_contract_pause_requires_admin_in_target_contract() {
+    fn cross_contract_admin_can_pause_target() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = soroban_sdk::Address::generate(&env);
+        let vault_id = env.register_contract(None, VaultContract);
+        let observer_id = env.register_contract(None, VaultObserverContract);
+
+        let vault = VaultContractClient::new(&env, &vault_id);
+        let observer = VaultObserverContractClient::new(&env, &observer_id);
+
+        vault.initialize(&admin);
+        observer.pause_target(&vault_id, &admin);
+        assert!(vault.is_paused());
+    }
+
+    #[test]
+    #[should_panic]
+    fn cross_contract_non_admin_cannot_pause_target() {
         let env = Env::default();
         env.mock_all_auths();
         let admin = soroban_sdk::Address::generate(&env);
@@ -270,15 +288,6 @@ mod tests {
         let observer = VaultObserverContractClient::new(&env, &observer_id);
 
         vault.initialize(&admin);
-        observer.pause_target(&vault_id, &admin);
-        assert!(vault.is_paused());
-
-        vault.unpause(&admin);
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            observer.pause_target(&vault_id, &outsider);
-        }));
-
-        assert!(result.is_err());
-        assert!(!vault.is_paused());
+        observer.pause_target(&vault_id, &outsider);
     }
 }

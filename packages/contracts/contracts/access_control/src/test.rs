@@ -179,7 +179,7 @@ fn stranger_cannot_grant_role() {
 }
 
 #[test]
-fn regranting_existing_role_is_idempotent() {
+fn granting_existing_role_is_idempotent() {
     let (env, admin, operator, cid) = setup();
     invoke(&env, &cid, || {
         AccessControl::grant_role(&env, &admin, &operator, Role::Operator)
@@ -299,7 +299,7 @@ fn require_role_passes_for_authorised_account() {
 
 #[test]
 #[should_panic]
-fn require_role_panics_when_account_lacks_role() {
+fn require_role_panics_when_role_is_absent() {
     let (env, _, other, cid) = setup();
     read(&env, &cid, || {
         AccessControl::require_role(&env, &other, Role::Admin)
