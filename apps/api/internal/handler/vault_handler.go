@@ -36,6 +36,7 @@ func NewVaultHandler(service *service.VaultService) *VaultHandler {
 func (h *VaultHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/vaults", h.createVault)
 	mux.HandleFunc("GET /api/v1/vaults/{id}", h.getVault)
+	mux.HandleFunc("GET /api/v1/vaults/{id}/allocations", h.getAllocations)
 	mux.HandleFunc("GET /api/v1/users/{userId}/vaults", h.listUserVaults)
 }
 
@@ -101,6 +102,22 @@ func (h *VaultHandler) listUserVaults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, models)
+}
+
+func (h *VaultHandler) getAllocations(w http.ResponseWriter, r *http.Request) {
+	vaultID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "vault id must be a valid UUID")
+		return
+	}
+
+	vault, err := h.service.GetVault(r.Context(), vaultID)
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, vault.Allocations)
 }
 
 func (h *VaultHandler) writeDomainError(w http.ResponseWriter, r *http.Request, err error) {

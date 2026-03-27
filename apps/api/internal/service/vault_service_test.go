@@ -44,8 +44,8 @@ func TestVaultServiceRecordDepositAndUpdateAllocations(t *testing.T) {
 	updated, err = service.UpdateAllocations(context.Background(), UpdateAllocationsInput{
 		VaultID: created.ID,
 		Allocations: []vault.Allocation{
-			{Protocol: "AAVE", Amount: decimal.RequireFromString("50"), APY: decimal.RequireFromString("4.5")},
-			{Protocol: "Blend", Amount: decimal.RequireFromString("75.5"), APY: decimal.RequireFromString("6.2")},
+			{Protocol: "AAVE", Amount: decimal.RequireFromString("40"), APY: decimal.RequireFromString("4.5")},
+			{Protocol: "Blend", Amount: decimal.RequireFromString("60"), APY: decimal.RequireFromString("6.2")},
 		},
 	})
 	if err != nil {

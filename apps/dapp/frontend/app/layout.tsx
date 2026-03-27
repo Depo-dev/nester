@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, Inter, Cormorant } from "next/font/google";
+import { PortfolioProvider } from "@/components/portfolio-provider";
 import { WalletProvider } from "@/components/wallet-provider";
+import { NotificationsProvider } from "@/components/notifications-provider";
+import { NotificationsToaster } from "@/components/notifications-toaster";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -30,18 +33,29 @@ export const metadata: Metadata = {
     },
 };
 
+import { SettingsProvider } from "@/context/settings-context";
+
 export default function RootLayout({
     children,
 }: Readonly<{
     children: React.ReactNode;
 }>) {
     return (
-        <html lang="en">
+        <html lang="en" suppressHydrationWarning>
             <body
                 suppressHydrationWarning
                 className={`${spaceGrotesk.variable} ${inter.variable} ${cormorant.variable} antialiased`}
             >
-                <WalletProvider>{children}</WalletProvider>
+                <SettingsProvider>
+                    <WalletProvider>
+                        <NotificationsProvider>
+                            <PortfolioProvider>
+                                {children}
+                                <NotificationsToaster />
+                            </PortfolioProvider>
+                        </NotificationsProvider>
+                    </WalletProvider>
+                </SettingsProvider>
             </body>
         </html>
     );
