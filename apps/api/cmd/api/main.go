@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"net/http"
 	"os"
@@ -10,11 +9,12 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/suncrestlabs/nester/apps/api/internal/config"
 	"github.com/suncrestlabs/nester/apps/api/internal/handler"
 	"github.com/suncrestlabs/nester/apps/api/internal/middleware"
+	"github.com/suncrestlabs/nester/apps/api/internal/repository"
 	"github.com/suncrestlabs/nester/apps/api/internal/repository/postgres"
 	"github.com/suncrestlabs/nester/apps/api/internal/service"
 	logpkg "github.com/suncrestlabs/nester/apps/api/pkg/logger"
@@ -40,11 +40,13 @@ func run() error {
 		return err
 	}
 
-	db, err := openDatabase(cfg)
+	pgPool, err := repository.NewPostgresDB(cfg.Database())
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer pgPool.Pool.Close()
+
+	db := stdlib.OpenDBFromPool(pgPool.Pool)
 
 	vaultRepository := postgres.NewVaultRepository(db)
 	vaultService := service.NewVaultService(vaultRepository)
@@ -55,8 +57,9 @@ func run() error {
 	settlementHandler := handler.NewSettlementHandler(settlementService)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", healthHandler(db, cfg.Database().ConnectionTimeout()))
-	mux.HandleFunc("GET /healthz", healthHandler(db, cfg.Database().ConnectionTimeout()))
+	mux.HandleFunc("GET /health", healthHandler(pgPool, cfg.Database().ConnectionTimeout()))
+	mux.HandleFunc("GET /healthz", healthHandler(pgPool, cfg.Database().ConnectionTimeout()))
+	mux.HandleFunc("GET /readyz", healthHandler(pgPool, cfg.Database().ConnectionTimeout()))
 	vaultHandler.Register(mux)
 	settlementHandler.Register(mux)
 
@@ -106,39 +109,12 @@ func run() error {
 	return nil
 }
 
-func openDatabase(cfg *config.Config) (*sql.DB, error) {
-	db, err := sql.Open("pgx", cfg.Database().DSN())
-	if err != nil {
-		return nil, err
-	}
-
-	db.SetMaxOpenConns(cfg.Database().PoolSize())
-	db.SetMaxIdleConns(min(5, cfg.Database().PoolSize()))
-
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Database().ConnectionTimeout())
-	defer cancel()
-
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	return db, nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func healthHandler(db *sql.DB, timeout time.Duration) http.HandlerFunc {
+func healthHandler(db *repository.PostgresDB, timeout time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
-		if err := db.PingContext(ctx); err != nil {
+		if err := db.Ping(ctx); err != nil {
 			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
 			return
 		}
