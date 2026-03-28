@@ -167,8 +167,20 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Add wasm32-unknown-unknown target
+        run: rustup target add wasm32-unknown-unknown
+
+
       - name: Build yield_registry WASM
         run: cargo build --release --target wasm32-unknown-unknown -p yield-registry-contract
+
+      - name: Ensure yield_registry.wasm is available for allocation_strategy
+        run: |
+          mkdir -p contracts/allocation_strategy/../../../target/wasm32-unknown-unknown/release
+          cp target/wasm32-unknown-unknown/release/yield_registry.wasm contracts/allocation_strategy/../../../target/wasm32-unknown-unknown/release/yield_registry.wasm
+
+      - name: Build allocation_strategy WASM
+        run: cargo build --release --target wasm32-unknown-unknown -p allocation-strategy-contract
 
       - name: Test contracts
         run: cargo test --lib

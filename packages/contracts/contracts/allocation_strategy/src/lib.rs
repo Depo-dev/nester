@@ -10,7 +10,7 @@ use nester_common::{emit_event, ContractError, BASIS_POINT_SCALE, SourceStatus};
 mod yield_registry_import {
     use nester_common::{SourceStatus, ProtocolType};
     soroban_sdk::contractimport!(
-        file = "../../../target/wasm32-unknown-unknown/release/yield_registry.wasm"
+        file = "../../target/wasm32-unknown-unknown/release/yield_registry.wasm"
     );
 }
 use yield_registry_import::Client as RegistryClient;
