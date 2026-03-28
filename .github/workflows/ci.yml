@@ -165,5 +165,8 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Build yield_registry WASM
+        run: cargo build --release --target wasm32-unknown-unknown -p yield-registry-contract
+
       - name: Test contracts
         run: cargo test --lib
