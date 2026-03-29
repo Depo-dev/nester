@@ -298,7 +298,19 @@ fn non_admin_cannot_pause_vault() {
         let deposit_token2 = env2.register_stellar_asset_contract_v2(token_admin2).address();
         let vault_id2 = env2.register_contract(None, vault_contract::VaultContract);
         let treasury2 = soroban_sdk::Address::generate(&env2);
-        vault_contract::VaultContractClient::new(&env2, &vault_id2).initialize(&admin2, &deposit_token2, &treasury2);
+        let vault_token_id2 = env2.register_contract(None, vault_token::VaultTokenContract);
+        vault_contract::VaultContractClient::new(&env2, &vault_id2).initialize(
+            &admin2,
+            &deposit_token2,
+            &vault_token_id2,
+            &treasury2,
+        );
+        vault_token::VaultTokenContractClient::new(&env2, &vault_token_id2).initialize(
+            &vault_id2,
+            &soroban_sdk::String::from_str(&env2, "Nester USDC Vault"),
+            &soroban_sdk::String::from_str(&env2, "nUSDC"),
+            &7u32,
+        );
 
         // Strip all mocked auths so the role guard runs normally.
         env2.set_auths(&[]);
