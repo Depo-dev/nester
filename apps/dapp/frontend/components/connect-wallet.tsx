@@ -10,6 +10,7 @@ import { truncateAddress } from "@/lib/utils";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { useNotifications } from "@/components/notifications-provider";
+import { useNetwork } from "@/hooks/useNetwork";
 
 const FEATURED_IDS = config.featuredWallets;
 
@@ -99,6 +100,7 @@ function WalletListItem({
 }
 
 export function ConnectWallet() {
+    const { currentNetwork } = useNetwork();
     const { connect, isConnecting, wallets, walletsLoaded, isConnected, address, disconnect } = useWallet();
     const { balances, applyBalanceUpdate } = usePortfolio();
     const { completeStep } = useOnboarding();
@@ -109,7 +111,7 @@ export function ConnectWallet() {
     const [showAll, setShowAll] = useState(false);
     const [isFunding, setIsFunding] = useState(false);
 
-    const isTestnet = config.stellarNetwork.toLowerCase().includes("test");
+    const isTestnet = currentNetwork.id === 'testnet';
     const totalBalance = balances.USDC + balances.XLM + balances.USDT;
 
     const handleSelect = async (walletId: string) => {
@@ -130,7 +132,8 @@ export function ConnectWallet() {
         if (!address) return;
         setIsFunding(true);
         try {
-            const response = await fetch(`https://friendbot.stellar.org?addr=${address}`);
+            const friendbotUrl = currentNetwork.friendbotUrl || 'https://friendbot.stellar.org';
+            const response = await fetch(`${friendbotUrl}?addr=${address}`);
             if (!response.ok) throw new Error("Failed to fund account");
             
             // Give 10000 USDC and 1000 XLM for testing

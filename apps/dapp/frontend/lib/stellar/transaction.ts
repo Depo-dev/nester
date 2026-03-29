@@ -10,21 +10,19 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 
+import { NETWORKS, DEFAULT_NETWORK } from "@/lib/networks";
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const HORIZON_RPC_URL =
-  process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ??
-  "https://soroban-testnet.stellar.org";
-
-const NETWORK_PASSPHRASE =
-  process.env.NEXT_PUBLIC_STELLAR_NETWORK === "mainnet"
-    ? Networks.PUBLIC
-    : Networks.TESTNET;
-
-const STELLAR_EXPLORER_BASE =
-  process.env.NEXT_PUBLIC_STELLAR_NETWORK === "mainnet"
-    ? "https://stellar.expert/explorer/public/tx"
-    : "https://stellar.expert/explorer/testnet/tx";
+const getCurrentNetwork = () => {
+  if (typeof window !== "undefined") {
+    const savedNetwork = localStorage.getItem("nester_network_id");
+    if (savedNetwork && (savedNetwork === "testnet" || savedNetwork === "mainnet")) {
+      return NETWORKS[savedNetwork];
+    }
+  }
+  return DEFAULT_NETWORK;
+};
 
 // These are set via environment variables so the contracts can be swapped
 // without code changes when moving from testnet to mainnet.
@@ -105,8 +103,8 @@ export class TransactionTimeoutError extends Error {
 
 // ── Soroban RPC client ────────────────────────────────────────────────────────
 
-function getServer(): SorobanRpc.Server {
-  return new SorobanRpc.Server(HORIZON_RPC_URL, { allowHttp: true });
+function getServer(rpcUrl: string): SorobanRpc.Server {
+  return new SorobanRpc.Server(rpcUrl, { allowHttp: true });
 }
 
 // ── Transaction builders ──────────────────────────────────────────────────────
@@ -121,8 +119,9 @@ export async function buildDepositTransaction(
   params: DepositParams
 ): Promise<BuiltTransaction> {
   const { walletAddress, contractId, tokenAddress, amount } = params;
+  const network = getCurrentNetwork();
 
-  const server = getServer();
+  const server = getServer(network.rpcUrl);
   const account = await server.getAccount(walletAddress);
 
   const amountStroops = BigInt(Math.round(amount * 10_000_000));
@@ -131,7 +130,7 @@ export async function buildDepositTransaction(
 
   const tx = new TransactionBuilder(account, {
     fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: network.networkPassphrase,
   })
     .addOperation(
       contract.call(
@@ -167,8 +166,9 @@ export async function buildWithdrawTransaction(
   params: WithdrawParams
 ): Promise<BuiltTransaction> {
   const { walletAddress, contractId, tokenAddress, shares } = params;
+  const network = getCurrentNetwork();
 
-  const server = getServer();
+  const server = getServer(network.rpcUrl);
   const account = await server.getAccount(walletAddress);
 
   const sharesStroops = BigInt(Math.round(shares * 10_000_000));
@@ -177,7 +177,7 @@ export async function buildWithdrawTransaction(
 
   const tx = new TransactionBuilder(account, {
     fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: network.networkPassphrase,
   })
     .addOperation(
       contract.call(
@@ -224,8 +224,10 @@ export async function signTransaction(txXdr: string): Promise<string> {
     );
   }
 
+  const network = getCurrentNetwork();
+
   const result = await freighter.signTransaction(txXdr, {
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: network.networkPassphrase,
   });
 
   // Freighter signals user rejection via a specific error message string
@@ -260,10 +262,11 @@ const MAX_POLL_ATTEMPTS = 15; // 30 seconds total
 export async function submitTransaction(
   signedXdr: string
 ): Promise<TransactionReceipt> {
-  const server = getServer();
+  const network = getCurrentNetwork();
+  const server = getServer(network.rpcUrl);
 
   // Re-parse from signed XDR so we have a Transaction object to submit
-  const tx = new Transaction(signedXdr, NETWORK_PASSPHRASE);
+  const tx = new Transaction(signedXdr, network.networkPassphrase);
   const sendResult = await server.sendTransaction(tx);
 
   if (sendResult.status === "ERROR") {
@@ -283,7 +286,7 @@ export async function submitTransaction(
     if (getResult.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
       return {
         txHash,
-        explorerUrl: `${STELLAR_EXPLORER_BASE}/${txHash}`,
+        explorerUrl: `${network.explorerUrl}/tx/${txHash}`,
         ledger: getResult.ledger,
       };
     }

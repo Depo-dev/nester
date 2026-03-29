@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import { BANKS, type LPNode, LP_NODES } from "@/lib/settlement-data";
+import { getExplorerTxUrl } from "@/utils/explorer";
 
 const SEND_ASSETS = [
     { symbol: "USDC", name: "USD Coin", image: "/usdc.png" },
@@ -207,7 +208,7 @@ export default function SettlementsPage() {
                 message: `Withdrew ${numericAmount.toLocaleString("en-US", {
                     maximumFractionDigits: 2,
                 })} ${sendAsset.symbol} to ${selectedBank?.name} ending in ${accountNumber.slice(-4)}.`,
-                actionUrl: `https://stellar.expert/explorer/testnet/tx/mock-settlement-${selectedQuote.node.id}`,
+                actionUrl: getExplorerTxUrl(`mock-settlement-${selectedQuote.node.id}`),
                 actionLabel: "View Transaction",
             },
             { showToast: true }

@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWebSocketContext } from "@/components/websocket-provider";
 import { type WSConnectionStatus } from "@/lib/ws-events";
+import { NetworkSelector } from "@/components/network/NetworkSelector";
 
 // ---------------------------------------------------------------------------
 // WebSocket connection status indicator
@@ -140,6 +141,7 @@ export function Navbar() {
                     <div className="flex items-center gap-3">
                         {isConnected && address ? (
                             <>
+                                <NetworkSelector />
                                 <WsStatusIndicator />
                                 <NotificationBell />
 

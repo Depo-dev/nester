@@ -1,17 +1,18 @@
 "use client";
 
-import { getExplorerUrl } from "@/components/portfolio-provider";
 import { config } from "@/lib/config";
+import { getExplorerTxUrl } from "@/utils/explorer";
 
 export async function buildMockTransactionXdr(
     address: string,
-    memo: string
+    memo: string,
+    networkPassphrase?: string
 ) {
     const StellarSdk = await import("@stellar/stellar-sdk");
     const account = new StellarSdk.Account(address, "1");
     const tx = new StellarSdk.TransactionBuilder(account, {
         fee: StellarSdk.BASE_FEE,
-        networkPassphrase: config.stellarNetwork,
+        networkPassphrase: networkPassphrase || config.stellarNetwork,
     })
         .addOperation(
             StellarSdk.Operation.manageData({
@@ -26,7 +27,7 @@ export async function buildMockTransactionXdr(
     return tx.toXDR();
 }
 
-export async function signWithWalletOrMock(txXdr: string) {
+export async function signWithWalletOrMock(txXdr: string, networkPassphrase?: string) {
     const StellarSdk = await import("@stellar/stellar-sdk");
 
     try {
@@ -35,7 +36,7 @@ export async function signWithWalletOrMock(txXdr: string) {
 
         if (selectedModule?.signTransaction) {
             const result = await selectedModule.signTransaction(txXdr, {
-                networkPassphrase: config.stellarNetwork,
+                networkPassphrase: networkPassphrase || config.stellarNetwork,
             });
             const signedTxXdr =
                 typeof result === "string"
@@ -52,7 +53,7 @@ export async function signWithWalletOrMock(txXdr: string) {
     return { signedTxXdr: txXdr, walletPopupUsed: false };
 }
 
-export async function simulateSubmission() {
+export async function simulateSubmission(explorerUrlBase?: string) {
     await new Promise((resolve) => window.setTimeout(resolve, 1200));
     const alphabet = "abcdef0123456789";
     const txHash = Array.from(
@@ -62,7 +63,7 @@ export async function simulateSubmission() {
 
     return {
         txHash,
-        explorerUrl: getExplorerUrl(txHash),
+        explorerUrl: explorerUrlBase ? `${explorerUrlBase}/tx/${txHash}` : getExplorerTxUrl(txHash),
     };
 }
 

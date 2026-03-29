@@ -367,10 +367,6 @@ export function usePortfolio() {
     return context;
 }
 
-export function getExplorerUrl(txHash: string) {
-    return `https://stellar.expert/explorer/testnet/tx/${txHash}`;
-}
-
 export function getVaultForPosition(position: PortfolioPosition) {
     return getVaultById(position.vaultId);
 }

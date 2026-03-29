@@ -21,6 +21,7 @@ import {
     type SettlementStatusChangedPayload,
     type VaultPausedPayload,
 } from "@/lib/ws-events";
+import { getExplorerTxUrl } from "@/utils/explorer";
 
 // ---------------------------------------------------------------------------
 // Context shape
@@ -103,7 +104,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
                             type: "deposit_confirmed",
                             title: "Deposit Confirmed",
                             message: `Deposited ${p.amount.toFixed(2)} ${p.asset} into ${p.vaultName}`,
-                            actionUrl: `https://stellar.expert/explorer/testnet/tx/${p.txHash}`,
+                            actionUrl: getExplorerTxUrl(p.txHash),
                             actionLabel: "View on Explorer",
                         },
                         { showToast: true }
@@ -118,7 +119,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
                             type: "withdrawal_processed",
                             title: "Withdrawal Confirmed",
                             message: `Received ${p.netAmount.toFixed(2)} ${p.asset} from ${p.vaultName}`,
-                            actionUrl: `https://stellar.expert/explorer/testnet/tx/${p.txHash}`,
+                            actionUrl: getExplorerTxUrl(p.txHash),
                             actionLabel: "View on Explorer",
                         },
                         { showToast: true }

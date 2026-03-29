@@ -39,6 +39,8 @@ export const metadata: Metadata = {
 
 import { SettingsProvider } from "@/context/settings-context";
 import { OnboardingProvider } from "@/hooks/useOnboarding";
+import { NetworkProvider } from "@/context/NetworkProvider";
+import { NetworkBanner } from "@/components/network/NetworkSelector";
 
 export default function RootLayout({
     children,
@@ -51,20 +53,23 @@ export default function RootLayout({
                 suppressHydrationWarning
                 className={`${spaceGrotesk.variable} ${inter.variable} ${cormorant.variable} antialiased`}
             >
-                <SettingsProvider>
-                    <WalletProvider>
-                        <NotificationsProvider>
-                            <PortfolioProvider>
-                                <WebSocketProvider>
-                                    <OnboardingProvider>
-                                        {children}
-                                        <NotificationsToaster />
-                                    </OnboardingProvider>
-                                </WebSocketProvider>
-                            </PortfolioProvider>
-                        </NotificationsProvider>
-                    </WalletProvider>
-                </SettingsProvider>
+                <NetworkProvider>
+                    <NetworkBanner />
+                    <SettingsProvider>
+                        <WalletProvider>
+                            <NotificationsProvider>
+                                <PortfolioProvider>
+                                    <WebSocketProvider>
+                                        <OnboardingProvider>
+                                            {children}
+                                            <NotificationsToaster />
+                                        </OnboardingProvider>
+                                    </WebSocketProvider>
+                                </PortfolioProvider>
+                            </NotificationsProvider>
+                        </WalletProvider>
+                    </SettingsProvider>
+                </NetworkProvider>
             </body>
         </html>
     );
