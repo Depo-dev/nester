@@ -11,7 +11,6 @@ use nester_common::{emit_event, ContractError};
 const VAULT: Symbol = symbol_short!("VAULT");
 const DEPOSIT: Symbol = symbol_short!("DEPOSIT");
 const WITHDRAW: Symbol = symbol_short!("WITHDRAW");
-const EMERG_EXIT: Symbol = symbol_short!("ERG_EXIT");
 const PAUSE: Symbol = symbol_short!("PAUSE");
 const UNPAUSE: Symbol = symbol_short!("UNPAUSE");
 const CB_TRIGGER: Symbol = symbol_short!("CB_TRIG");
@@ -80,6 +79,46 @@ pub struct EmergencyWithdrawEventData {
     pub assets_returned: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EmergencyWithdrawRequestedEventData {
+    pub user: Address,
+    pub amount: i128,
+    pub fee_applied: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EmergencyWithdrawProcessedEventData {
+    pub user: Address,
+    pub amount_returned: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EmergencyWithdrawQueuedEventData {
+    pub user: Address,
+    pub amount: i128,
+    pub position_in_queue: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EmergencyRequest {
+    pub user: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct EmergencyPreview {
+    pub principal_deposited: i128,
+    pub emergency_fee: i128,
+    pub estimated_return: i128,
+    pub vault_liquid_reserves: i128,
+    pub can_process: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Storage
 // ---------------------------------------------------------------------------
@@ -108,6 +147,10 @@ enum DataKey {
     RebalanceThreshold,
     CircuitBreakerConfig,
     WithdrawalWindow,
+    UserPrincipal(Address),
+    EmergencyFeeBps,
+    VaultLiquidReserves,
+    EmergencyQueue,
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +227,45 @@ fn set_accrued_fees(env: &Env, amount: i128) {
     env.storage()
         .instance()
         .set(&DataKey::AccruedFees, &amount);
+}
+
+fn get_user_principal(env: &Env, user: &Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::UserPrincipal(user.clone()))
+        .unwrap_or(0)
+}
+
+fn set_user_principal(env: &Env, user: &Address, amount: i128) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::UserPrincipal(user.clone()), &amount);
+}
+
+fn get_vault_liquid_reserves(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::VaultLiquidReserves)
+        .unwrap_or(0)
+}
+
+fn set_vault_liquid_reserves(env: &Env, amount: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::VaultLiquidReserves, &amount);
+}
+
+fn get_emergency_queue(env: &Env) -> soroban_sdk::Vec<EmergencyRequest> {
+    env.storage()
+        .instance()
+        .get(&DataKey::EmergencyQueue)
+        .unwrap_or(soroban_sdk::Vec::new(env))
+}
+
+fn set_emergency_queue(env: &Env, queue: &soroban_sdk::Vec<EmergencyRequest>) {
+    env.storage()
+        .instance()
+        .set(&DataKey::EmergencyQueue, queue);
 }
 
 fn get_fee_config(env: &Env) -> FeeConfig {
@@ -327,6 +409,16 @@ impl VaultContract {
         env.storage().instance().set(&DataKey::FeeConfig, &config);
     }
 
+    pub fn set_emergency_fee(env: Env, admin: Address, fee_bps: u32) -> Result<(), ContractError> {
+        admin.require_auth();
+        AccessControl::require_role(&env, &admin, Role::Admin);
+        if fee_bps > 500 {
+            panic_with_error!(&env, ContractError::InvalidAmount); // Max 500 bps (5%)
+        }
+        env.storage().instance().set(&DataKey::EmergencyFeeBps, &fee_bps);
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // Admin operations
     // -----------------------------------------------------------------------
@@ -431,6 +523,9 @@ impl VaultContract {
             
             let total_assets = get_total_assets(&env);
             set_total_assets(&env, total_assets - fees);
+            
+            let current_reserves = get_vault_liquid_reserves(&env);
+            set_vault_liquid_reserves(&env, current_reserves - fees);
         }
     }
 
@@ -472,6 +567,12 @@ impl VaultContract {
         set_total_shares(&env, total_shares + shares_to_mint);
         set_total_assets(&env, total_assets + amount);
         
+        let current_principal = get_user_principal(&env, &user);
+        set_user_principal(&env, &user, current_principal + amount);
+        
+        let current_reserves = get_vault_liquid_reserves(&env);
+        set_vault_liquid_reserves(&env, current_reserves + amount);
+        
         env.storage().persistent().set(&DataKey::DepositTime(user.clone()), &env.ledger().timestamp());
 
         emit_event(
@@ -487,7 +588,47 @@ impl VaultContract {
             },
         );
 
+        Self::process_emergency_queue(env.clone());
+
         new_user_shares
+    }
+
+    pub fn process_emergency_queue(env: Env) {
+        let queue = get_emergency_queue(&env);
+        if queue.is_empty() {
+            return;
+        }
+
+        let mut liquid_reserves = get_vault_liquid_reserves(&env);
+        let token_address = self::VaultContract::get_token(env.clone());
+        let contract_address = env.current_contract_address();
+        let token_client = token::Client::new(&env, &token_address);
+
+        let mut i = 0;
+        while i < queue.len() {
+            let req = queue.get(i).unwrap();
+            if liquid_reserves >= req.amount {
+                token_client.transfer(&contract_address, &req.user, &req.amount);
+                liquid_reserves -= req.amount;
+                
+                emit_event(&env, VAULT, symbol_short!("ERG_PROC"), req.user.clone(), EmergencyWithdrawProcessedEventData {
+                    user: req.user.clone(),
+                    amount_returned: req.amount,
+                });
+            } else {
+                break;
+            }
+            i += 1;
+        }
+        
+        let mut new_queue = soroban_sdk::Vec::new(&env);
+        while i < queue.len() {
+            new_queue.push_back(queue.get(i).unwrap());
+            i += 1;
+        }
+
+        set_vault_liquid_reserves(&env, liquid_reserves);
+        set_emergency_queue(&env, &new_queue);
     }
 
     /// Withdraw funds from the vault.
@@ -548,6 +689,17 @@ impl VaultContract {
         set_shares(&env, &user, new_user_shares);
         set_total_shares(&env, total_shares - shares);
         set_total_assets(&env, total_assets - assets_to_withdraw);
+        
+        let current_principal = get_user_principal(&env, &user);
+        let principal_to_remove = if current_shares > 0 {
+            current_principal * shares / current_shares
+        } else {
+            0
+        };
+        set_user_principal(&env, &user, current_principal - principal_to_remove);
+        
+        let current_reserves = get_vault_liquid_reserves(&env);
+        set_vault_liquid_reserves(&env, current_reserves - assets_to_withdraw);
 
         emit_event(
             &env,
@@ -566,48 +718,88 @@ impl VaultContract {
         new_user_shares
     }
 
+    pub fn emergency_withdraw_preview(env: Env, user: Address) -> Result<EmergencyPreview, ContractError> {
+        let principal = get_user_principal(&env, &user);
+        let fee_bps: u32 = env.storage().instance().get(&DataKey::EmergencyFeeBps).unwrap_or(0);
+        let emergency_fee = principal * (fee_bps as i128) / 10_000;
+        let estimated_return = principal - emergency_fee;
+        
+        let vault_liquid_reserves = get_vault_liquid_reserves(&env);
+        let can_process = vault_liquid_reserves >= estimated_return;
+        
+        Ok(EmergencyPreview {
+            principal_deposited: principal,
+            emergency_fee,
+            estimated_return,
+            vault_liquid_reserves,
+            can_process,
+        })
+    }
+
     /// Direct withdrawal bypassing normal logic, only available when paused.
-    pub fn emergency_withdraw(env: Env, user: Address) -> i128 {
+    pub fn emergency_withdraw(env: Env, user: Address) -> Result<i128, ContractError> {
         require_initialized(&env);
         if !is_paused(&env) {
             panic_with_error!(&env, ContractError::InvalidOperation);
         }
         
         user.require_auth();
-        accrue_management_fee(&env);
 
-        let shares = get_shares(&env, &user);
-        if shares <= 0 {
+        let principal = get_user_principal(&env, &user);
+        if principal <= 0 {
             panic_with_error!(&env, ContractError::InvalidAmount);
         }
 
+        let fee_bps: u32 = env.storage().instance().get(&DataKey::EmergencyFeeBps).unwrap_or(0);
+        let fee = principal * (fee_bps as i128) / 10_000;
+        let return_amount = principal - fee;
+
+        let liquid_reserves = get_vault_liquid_reserves(&env);
+
+        let shares = get_shares(&env, &user);
         let total_shares = get_total_shares(&env);
         let total_assets = get_total_assets(&env);
-        let accrued_fees = get_accrued_fees(&env);
-        let available_assets = total_assets - accrued_fees;
-
-        let assets_to_withdraw = if total_shares > 0 {
-            shares * available_assets / total_shares
-        } else {
-            0
-        };
-
-        if assets_to_withdraw > 0 {
-            let token_address = self::VaultContract::get_token(env.clone());
-            token::Client::new(&env, &token_address).transfer(&env.current_contract_address(), &user, &assets_to_withdraw);
-        }
-
+        
         set_shares(&env, &user, 0);
         set_total_shares(&env, total_shares - shares);
-        set_total_assets(&env, total_assets - assets_to_withdraw);
+        set_total_assets(&env, total_assets - principal);
+        set_user_principal(&env, &user, 0);
 
-        emit_event(&env, VAULT, EMERG_EXIT, user.clone(), EmergencyWithdrawEventData {
+        emit_event(&env, VAULT, symbol_short!("ERG_REQ"), user.clone(), EmergencyWithdrawRequestedEventData {
             user: user.clone(),
-            shares_burned: shares,
-            assets_returned: assets_to_withdraw,
+            amount: return_amount,
+            fee_applied: fee,
         });
 
-        assets_to_withdraw
+        if liquid_reserves < return_amount {
+            let mut queue = get_emergency_queue(&env);
+            queue.push_back(EmergencyRequest {
+                user: user.clone(),
+                amount: return_amount,
+            });
+            set_emergency_queue(&env, &queue);
+            
+            let position = queue.len();
+            emit_event(&env, VAULT, symbol_short!("ERG_QUE"), user.clone(), EmergencyWithdrawQueuedEventData {
+                user: user.clone(),
+                amount: return_amount,
+                position_in_queue: position,
+            });
+            
+            Ok(0)
+        } else {
+            let token_address = self::VaultContract::get_token(env.clone());
+            token::Client::new(&env, &token_address).transfer(&env.current_contract_address(), &user, &return_amount);
+            
+            set_vault_liquid_reserves(&env, liquid_reserves - return_amount);
+            
+            emit_event(&env, VAULT, symbol_short!("ERG_PROC"), user.clone(), EmergencyWithdrawProcessedEventData {
+                user: user.clone(),
+                amount_returned: return_amount,
+            });
+            
+            Ok(return_amount)
+        }
     }
 
     // -----------------------------------------------------------------------
