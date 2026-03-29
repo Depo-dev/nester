@@ -13,6 +13,16 @@ use crate::{VaultContract, VaultContractClient, VaultStatus};
 // Helpers
 // ---------------------------------------------------------------------------
 
+use soroban_sdk::{contract, contractimpl};
+
+#[contract]
+pub struct MockTreasury;
+
+#[contractimpl]
+impl MockTreasury {
+    pub fn receive_fees(_env: Env, _amount: i128) {}
+}
+
 /// One "unit" in 7-decimal Stellar token precision.
 const STROOP: i128 = 1;
 /// Convenient larger denomination.
@@ -50,24 +60,18 @@ fn setup() -> (
 
     // Create token client
     let sac: token::StellarAssetClient<'static> =
-        token::StellarAssetClient::new(
-            unsafe { core::mem::transmute(&env) },
-            &token_id,
-        );
+        token::StellarAssetClient::new(unsafe { core::mem::transmute(&env) }, &token_id);
 
     // -----------------------------
     // Vault setup
     // -----------------------------
     let admin = Address::generate(&env);
-    let treasury = Address::generate(&env); // new treasury address
+    let treasury = env.register_contract(None, MockTreasury); // new treasury address
 
     let vault_id = env.register_contract(None, VaultContract);
 
     let vault: VaultContractClient<'static> =
-        VaultContractClient::new(
-            unsafe { core::mem::transmute(&env) },
-            &vault_id,
-        );
+        VaultContractClient::new(unsafe { core::mem::transmute(&env) }, &vault_id);
 
     // Pass admin, token, and treasury
     vault.initialize(&admin, &token_id, &treasury);
@@ -290,7 +294,10 @@ fn withdrawal_before_lock_period_deducts_early_fee() {
     // by assets_to_withdraw, not the full deposit).  We verify indirectly via
     // total deposits being less than zero after accounting for the fee.
     let expected_fee = early_withdrawal_fee(deposit_amount);
-    assert!(expected_fee > 0, "fee should be non-zero for early withdrawal");
+    assert!(
+        expected_fee > 0,
+        "fee should be non-zero for early withdrawal"
+    );
 }
 
 #[test]
@@ -450,4 +457,109 @@ fn single_stroop_deposit_and_withdrawal() {
 fn get_token_returns_registered_token_address() {
     let (_env, _admin, sac, vault, _treasury) = setup();
     assert_eq!(vault.get_token(), sac.address);
+}
+
+// ---------------------------------------------------------------------------
+// Emergency Withdraw Tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn emergency_withdraw_works_when_paused() {
+    let (env, admin, token, vault, _treasury) = setup();
+    let user = Address::generate(&env);
+    let deposit_amount = 1_000 * XLM;
+    mint(&token, &user, deposit_amount);
+
+    vault.deposit(&user, &deposit_amount);
+
+    vault.set_emergency_fee(&admin, &100); // 1%
+
+    vault.pause(&admin);
+
+    let returned = vault.emergency_withdraw(&user);
+
+    // 1% of 1000 = 10. Expected return = 990
+    assert_eq!(returned, 990 * XLM);
+
+    // Balance should be 0
+    assert_eq!(vault.get_balance(&user), 0);
+    assert_eq!(
+        token::Client::new(&env, &token.address).balance(&user),
+        990 * XLM
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #9)")]
+fn emergency_withdraw_fails_when_not_paused() {
+    let (env, _admin, token, vault, _treasury) = setup();
+    let user = Address::generate(&env);
+    let deposit_amount = 1_000 * XLM;
+    mint(&token, &user, deposit_amount);
+
+    vault.deposit(&user, &deposit_amount);
+
+    vault.emergency_withdraw(&user);
+}
+
+#[test]
+fn emergency_withdraw_queues_when_liquidity_insufficient() {
+    let (env, admin, token, vault, _treasury) = setup();
+    let user = Address::generate(&env);
+    let deposit_amount = 1_000 * XLM;
+    mint(&token, &user, deposit_amount);
+
+    vault.deposit(&user, &deposit_amount);
+
+    // Advance time by a year to accrue large management fee
+    advance_time(&env, 365 * DAY);
+
+    vault.collect_fees(&admin);
+
+    vault.pause(&admin);
+
+    // Check preview BEFORE withdraw
+    let preview = vault.emergency_withdraw_preview(&user);
+    assert_eq!(preview.vault_liquid_reserves, 9950000000);
+    assert_eq!(preview.estimated_return, 10000000000);
+    assert_eq!(preview.can_process, false);
+
+    let returned = vault.emergency_withdraw(&user);
+
+    // It should queue because liquid reserves < principal
+    assert_eq!(returned, 0);
+
+    // Check preview AFTER
+    let preview_after = vault.emergency_withdraw_preview(&user);
+    assert_eq!(preview_after.principal_deposited, 0); // already cleared from principal
+}
+
+#[test]
+fn emergency_withdraw_queue_processed_on_deposit() {
+    let (env, admin, token, vault, _treasury) = setup();
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    mint(&token, &user1, 1_000 * XLM);
+    mint(&token, &user2, 2_000 * XLM);
+
+    vault.deposit(&user1, &(1_000 * XLM));
+
+    advance_time(&env, 365 * DAY);
+    vault.collect_fees(&admin);
+
+    vault.pause(&admin);
+    vault.emergency_withdraw(&user1);
+
+    // Now user1 is in queue.
+    assert_eq!(token::Client::new(&env, &token.address).balance(&user1), 0);
+
+    // user2 deposits, providing liquidity, which processes queue
+    vault.unpause(&admin);
+    vault.deposit(&user2, &(2_000 * XLM));
+
+    // user1 should have received their principal
+    assert_eq!(
+        token::Client::new(&env, &token.address).balance(&user1),
+        1_000 * XLM
+    );
 }
