@@ -343,10 +343,18 @@ fn non_admin_cannot_pause_vault() {
             .address();
         let vault_id2 = env2.register_contract(None, vault_contract::VaultContract);
         let treasury2 = soroban_sdk::Address::generate(&env2);
+        let vault_token_id2 = env2.register_contract(None, vault_token::VaultTokenContract);
         vault_contract::VaultContractClient::new(&env2, &vault_id2).initialize(
             &admin2,
             &deposit_token2,
+            &vault_token_id2,
             &treasury2,
+        );
+        vault_token::VaultTokenContractClient::new(&env2, &vault_token_id2).initialize(
+            &vault_id2,
+            &soroban_sdk::String::from_str(&env2, "Nester USDC Vault"),
+            &soroban_sdk::String::from_str(&env2, "nUSDC"),
+            &7u32,
         );
 
         // Strip all mocked auths so the role guard runs normally.
@@ -421,4 +429,28 @@ fn late_depositor_does_not_capture_prior_yield() {
 
     let bob_out = h.token().burn_for_withdrawal(&bob, &10_000_i128);
     assert_eq!(bob_out, 12_000, "bob receives exactly what he deposited");
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 7 — Vault <-> VaultToken integration
+// ---------------------------------------------------------------------------
+
+/// Vault deposits must mint vault-token shares, and withdrawals must burn them.
+#[test]
+fn vault_deposit_and_withdraw_syncs_vault_token_supply() {
+    let h = NesterHarness::setup();
+    let user = h.create_user();
+
+    h.mint_deposit_tokens(&user, 2_000);
+    let user_shares = h.vault().deposit(&user, &1_000);
+    assert_eq!(user_shares, 1_000);
+    assert_eq!(h.token().balance(&user), 1_000);
+    assert_eq!(h.token().total_supply(), 1_000);
+    assert_eq!(h.token().total_assets(), 1_000);
+
+    // Partial withdraw burns shares in the vault-token contract.
+    let remaining = h.vault().withdraw(&user, &400);
+    assert_eq!(remaining, 600);
+    assert_eq!(h.token().balance(&user), 600);
+    assert_eq!(h.token().total_supply(), 600);
 }

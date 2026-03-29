@@ -84,6 +84,7 @@ impl NesterHarness {
         VaultContractClient::new(&env, &vault_id).initialize(
             &admin,
             &deposit_token_id,
+            &token_id,
             &treasury_id,
         );
 
