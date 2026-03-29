@@ -189,10 +189,6 @@ fn vault_token_client(env: &Env) -> VaultTokenContractClient {
     VaultTokenContractClient::new(env, &vault_token)
 }
 
-fn get_total_shares(env: &Env) -> i128 {
-    vault_token_client(env).total_supply()
-}
-
 fn get_shares(env: &Env, user: &Address) -> i128 {
     vault_token_client(env).balance(user)
 }
