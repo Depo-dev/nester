@@ -458,7 +458,6 @@ fn source_score(source: &RegistrySource) -> i128 {
 
 /// Panic with [`ContractError::Unauthorized`] unless `account` holds Admin or
 /// Operator. Day-to-day operations (e.g. weight updates) are open to both.
->>>>>>> upstream/main
 fn require_admin_or_operator(env: &Env, account: &Address) {
     if !AccessControl::has_role(env, account, Role::Admin)
         && !AccessControl::has_role(env, account, Role::Operator)
