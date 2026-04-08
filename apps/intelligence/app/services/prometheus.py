@@ -12,7 +12,6 @@ from app.services.conversation_store import store as conversation_store
 
 logger = logging.getLogger(__name__)
 
-MODEL = "claude-sonnet-4-6"
 CHAT_MAX_TOKENS = 1024
 ANALYZE_MAX_TOKENS = 800
 
@@ -114,7 +113,7 @@ async def stream_chat(user_id: str, message: str) -> AsyncIterator[str]:
 
     try:
         async with client.messages.stream(
-            model=MODEL,
+            model=settings.anthropic_model,
             max_tokens=CHAT_MAX_TOKENS,
             system=SYSTEM_PROMPT,
             messages=messages,
@@ -158,7 +157,7 @@ async def get_portfolio_insights(user_id: str) -> list[dict[str, Any]]:
     client = get_client()
     try:
         response = await client.messages.create(
-            model=MODEL,
+            model=settings.anthropic_model,
             max_tokens=ANALYZE_MAX_TOKENS,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -187,7 +186,7 @@ async def get_market_sentiment() -> dict[str, Any]:
     client = get_client()
     try:
         response = await client.messages.create(
-            model=MODEL,
+            model=settings.anthropic_model,
             max_tokens=200,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -222,7 +221,7 @@ async def get_vault_recommendations(vault_id: str) -> dict[str, Any]:
     client = get_client()
     try:
         response = await client.messages.create(
-            model=MODEL,
+            model=settings.anthropic_model,
             max_tokens=ANALYZE_MAX_TOKENS,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
