@@ -101,7 +101,7 @@ export function NetworkBanner() {
   if (currentNetwork.id !== 'testnet') return null;
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-60 flex h-10 items-center justify-center border-b border-yellow-200 bg-black px-4 py-6">
+    <div className="fixed top-0 left-0 right-0 z-60 flex h-10 items-center justify-center border-b border-yellow-200 bg-black px-4">
       <p className="flex items-center gap-2 text-xs font-medium text-white">
         <AlertTriangle className="h-3.5 w-3.5" />
         You are on Testnet — tokens have no real value

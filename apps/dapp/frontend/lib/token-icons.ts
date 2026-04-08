@@ -1,4 +1,3 @@
-// USDC and XLM SVG/PNG imports for vault cards
-// Place these in your public/assets or similar directory if not already present
-export const USDC_ICON = "/assets/usdc.png"; // update path as needed
-export const XLM_ICON = "/assets/xlm.png"; // update path as needed
+// Token icon paths served from the frontend public root.
+export const USDC_ICON = "/usdc.png";
+export const XLM_ICON = "/xlm.png";

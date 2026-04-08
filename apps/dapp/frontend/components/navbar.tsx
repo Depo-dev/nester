@@ -8,6 +8,7 @@ import { NotificationBell } from "@/components/notification-bell";
 import { truncateAddress, cn } from "@/lib/utils";
 import { LogOut, Copy, Check, ChevronDown, Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useNetwork } from "@/hooks/useNetwork";
 import { motion, AnimatePresence } from "framer-motion";
 
 const NAV_LINKS = [
@@ -21,6 +22,7 @@ const NAV_LINKS = [
 export function Navbar() {
     const pathname = usePathname();
     const { address, isConnected, disconnect } = useWallet();
+    const { currentNetwork } = useNetwork();
     const [copied, setCopied] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
     const [mobileOpen, setMobileOpen] = useState(false);
@@ -68,7 +70,8 @@ export function Navbar() {
         <>
             <nav
                 className={cn(
-                    "fixed top-10 left-0 right-0 z-50 transition-all duration-300 border-b",
+                    "fixed left-0 right-0 z-50 transition-all duration-300 border-b",
+                    currentNetwork.id === 'testnet' ? "top-10" : "top-0",
                     isScrolled
                         ? "bg-white/90 backdrop-blur-md border-border shadow-sm py-3"
                         : "bg-white/70 backdrop-blur-sm border-transparent py-4"
