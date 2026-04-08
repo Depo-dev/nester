@@ -39,6 +39,7 @@ interface SavingsVault {
     penaltyPct: number;
     badge: string;
     features: string[];
+    supportedAssets: ("USDC" | "XLM")[];
 }
 
 // ── Vault Definitions ─────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ const SAVINGS_VAULTS: SavingsVault[] = [
         penaltyPct: 0,
         badge: "No lockup",
         features: ["Withdraw anytime", "No exit fee", "Daily yield accrual"],
+        supportedAssets: ["USDC", "XLM"],
     },
     {
         id: "auto-compound",
@@ -75,6 +77,7 @@ const SAVINGS_VAULTS: SavingsVault[] = [
         penaltyPct: 0,
         badge: "Auto-reinvest",
         features: ["Daily auto-compounding", "No manual claiming", "No exit fee"],
+        supportedAssets: ["USDC", "XLM"],
     },
     {
         id: "stablecoin-yield",
@@ -91,6 +94,7 @@ const SAVINGS_VAULTS: SavingsVault[] = [
         penaltyPct: 0,
         badge: "Multi-pool",
         features: ["Multi-stablecoin exposure", "Weekly rebalance", "No exit fee"],
+        supportedAssets: ["USDC", "XLM"],
     },
     {
         id: "custom-savings",
@@ -107,6 +111,7 @@ const SAVINGS_VAULTS: SavingsVault[] = [
         penaltyPct: 0,
         badge: "Goal-based",
         features: ["Named savings goal", "Target amount tracking", "Withdraw anytime"],
+        supportedAssets: ["USDC", "XLM"],
     },
 ];
 
@@ -254,17 +259,22 @@ function DepositModal({
     const { balances } = usePortfolio();
     const [amount, setAmount] = useState("");
     const [goalName, setGoalName] = useState("");
+    const [selectedAsset, setSelectedAsset] = useState<"USDC" | "XLM">("USDC");
 
     useEffect(() => {
         if (!vault) {
             setAmount("");
             setGoalName("");
+            setSelectedAsset("USDC");
+        } else {
+            setSelectedAsset(vault.supportedAssets[0] ?? "USDC");
         }
     }, [vault]);
 
     if (!vault) return null;
 
-    const available = balances.USDC ?? 0;
+    const supportedAssets = vault.supportedAssets;
+    const available = balances[selectedAsset] ?? 0;
     const parsedAmount = parseFloat(amount) || 0;
     const projectedYield = parsedAmount * vault.apy * ((vault.lockDays ?? 365) / 365);
     const maturityDate = vault.lockDays
@@ -339,12 +349,36 @@ function DepositModal({
                                 <div className="space-y-5">
                                     {/* Amount input */}
                                     <div>
-                                        <label className="mb-2 block text-xs text-black/45">
-                                            Amount (USDC)
-                                        </label>
+                                        <div className="mb-2 flex items-center justify-between">
+                                            <label className="text-xs text-black/45">
+                                                Amount ({selectedAsset})
+                                            </label>
+                                            {supportedAssets.length > 1 && (
+                                                <div className="flex rounded-full border border-black/10 bg-black/[0.03] p-0.5">
+                                                    {supportedAssets.map((a) => (
+                                                        <button
+                                                            key={a}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setSelectedAsset(a);
+                                                                setAmount("");
+                                                            }}
+                                                            className={cn(
+                                                                "rounded-full px-3 py-1 text-[11px] font-medium transition-colors",
+                                                                selectedAsset === a
+                                                                    ? "bg-black text-white"
+                                                                    : "text-black/50 hover:text-black"
+                                                            )}
+                                                        >
+                                                            {a}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
                                         <div className="relative">
                                             <span className="absolute left-4 top-1/2 -translate-y-1/2 font-mono text-sm text-black/35">
-                                                $
+                                                {selectedAsset === "XLM" ? "✦" : "$"}
                                             </span>
                                             <input
                                                 type="number"
@@ -360,12 +394,12 @@ function DepositModal({
                                             />
                                         </div>
                                         <div className="mt-2 flex items-center justify-between text-xs text-black/35">
-                                            <span>Min <span className="font-mono">${vault.minDeposit}</span></span>
+                                            <span>Min <span className="font-mono">{vault.minDeposit}</span> {selectedAsset}</span>
                                             <button
                                                 onClick={() => setAmount(String(available))}
                                                 className="hover:text-black transition-colors"
                                             >
-                                                Available: <span className="font-mono">{available.toFixed(2)}</span> USDC
+                                                Available: <span className="font-mono">{available.toFixed(2)}</span> {selectedAsset}
                                             </button>
                                         </div>
                                         {underMin && (

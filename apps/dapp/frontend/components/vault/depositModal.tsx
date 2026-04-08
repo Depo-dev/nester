@@ -183,17 +183,23 @@ export function DepositModal({ open, onClose, vault }: DepositModalProps) {
   const [state, setState] = useState<ActionState>("input");
   const [errorMsg, setErrorMsg] = useState("");
   const [receipt, setReceipt] = useState<TransactionReceipt | null>(null);
+  const [selectedAsset, setSelectedAsset] = useState<"USDC" | "XLM">(
+    (vault?.supportedAssets?.[0] as "USDC" | "XLM") ?? "USDC"
+  );
+
+  // Keep selectedAsset in sync when vault changes
+  const supportedAssets = (vault?.supportedAssets ?? ["USDC"]) as ("USDC" | "XLM")[];
 
   const amount = Number(amountInput) || 0;
   const meta = vault ? getVaultMeta(vault) : null;
-  const balance = getAvailableBalance(meta?.asset ?? "USDC");
+  const balance = getAvailableBalance(selectedAsset);
 
   const validationError = useMemo(() => {
     if (!amount) return null;
     if (amount <= 0) return "Amount must be greater than 0.";
-    if (amount < 1) return "Minimum deposit is 1 USDC.";
+    if (amount < 1) return `Minimum deposit is 1 ${selectedAsset}.`;
     if (amount > balance)
-      return `Insufficient balance. You have ${formatCurrency(balance)} USDC available.`;
+      return `Insufficient balance. You have ${formatCurrency(balance)} ${selectedAsset} available.`;
     return null;
   }, [amount, balance]);
 
@@ -238,7 +244,7 @@ export function DepositModal({ open, onClose, vault }: DepositModalProps) {
         vault: {
           id: vault.id,
           name: vault.name,
-          asset: meta?.asset || "USDC",
+          asset: selectedAsset,
           apy: meta?.apy || 0,
           lockDays: meta?.lockDays || 0,
           earlyWithdrawalPenaltyPct: 0.1,
@@ -260,7 +266,7 @@ export function DepositModal({ open, onClose, vault }: DepositModalProps) {
       open={open && !!vault}
       onClose={state === "signing" || state === "submitting" ? () => {} : reset}
       title={`Deposit into ${vault?.name ?? "Vault"}`}
-      subtitle="Build and sign a Soroban transaction to deposit USDC into this vault."
+      subtitle={`Build and sign a Soroban transaction to deposit ${selectedAsset} into this vault.`}
     >
       {vault && (
         <div className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
@@ -281,7 +287,7 @@ export function DepositModal({ open, onClose, vault }: DepositModalProps) {
                     Balance
                   </p>
                   <p className="mt-1 text-sm font-medium text-foreground">
-                    {formatCurrency(balance)} USDC
+                    {formatCurrency(balance)} {selectedAsset}
                   </p>
                 </div>
               </div>
@@ -313,9 +319,34 @@ export function DepositModal({ open, onClose, vault }: DepositModalProps) {
                     className="min-w-0 flex-1 bg-transparent font-heading text-3xl font-light outline-none placeholder:text-muted-foreground/40 disabled:opacity-50"
                   />
                   <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-white px-3 py-2 text-sm font-medium text-foreground shadow-sm">
-                      USDC
-                    </span>
+                    {supportedAssets.length > 1 ? (
+                      <div className="flex rounded-full border border-border bg-white p-0.5 shadow-sm">
+                        {supportedAssets.map((a) => (
+                          <button
+                            key={a}
+                            type="button"
+                            onClick={() => {
+                              setSelectedAsset(a);
+                              setAmountInput("");
+                              if (state === "error") setState("input");
+                            }}
+                            disabled={state !== "input" && state !== "error"}
+                            className={cn(
+                              "rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40",
+                              selectedAsset === a
+                                ? "bg-foreground text-background"
+                                : "text-foreground/60 hover:text-foreground"
+                            )}
+                          >
+                            {a}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="rounded-full bg-white px-3 py-2 text-sm font-medium text-foreground shadow-sm">
+                        {selectedAsset}
+                      </span>
+                    )}
                     <button
                       onClick={() => setAmountInput(balance.toFixed(2))}
                       disabled={state !== "input" && state !== "error"}
@@ -338,7 +369,7 @@ export function DepositModal({ open, onClose, vault }: DepositModalProps) {
                 {[
                   {
                     label: "Estimated annual yield",
-                    value: `${formatCurrency(estimatedYield)} USDC`,
+                    value: `${formatCurrency(estimatedYield)} ${selectedAsset}`,
                   },
                   {
                     label: "nVault shares to receive",
@@ -424,7 +455,7 @@ export function DepositModal({ open, onClose, vault }: DepositModalProps) {
                     <p className="text-sm font-medium">Deposit confirmed</p>
                   </div>
                   <p className="mt-2 text-sm text-emerald-800/80">
-                    {formatCurrency(amount)} USDC deposited into the{" "}
+                    {formatCurrency(amount)} {selectedAsset} deposited into the{" "}
                     {vault.name} vault.
                   </p>
                   <p className="mt-1 font-mono text-[11px] text-emerald-800/60">
