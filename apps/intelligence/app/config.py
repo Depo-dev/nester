@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     port: int = 8000
     anthropic_api_key: str = ""
 
-    model_config = {"env_prefix": "INTELLIGENCE_"}
+    model_config = SettingsConfigDict(env_prefix="INTELLIGENCE_", env_file=".env")
 
 
 settings = Settings()
