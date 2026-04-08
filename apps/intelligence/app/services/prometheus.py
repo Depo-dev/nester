@@ -3,7 +3,7 @@
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Literal, cast
 
 import anthropic
 
@@ -87,7 +87,7 @@ def _to_anthropic_messages(history: list[dict[str, str]]) -> list[anthropic.type
     Anthropic uses the same role names.
     """
     return [
-        {"role": msg["role"], "content": msg["content"]}  # type: ignore[misc]
+        {"role": cast(Literal["user", "assistant"], msg["role"]), "content": msg["content"]}
         for msg in history
     ]
 
@@ -163,7 +163,7 @@ async def get_portfolio_insights(user_id: str) -> list[dict[str, Any]]:
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = response.content[0].text if response.content else ""
+        text = next((b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), "")
         return list(json.loads(_json_strip(text)))
     except Exception:
         logger.exception("Failed to get portfolio insights for user %s", user_id)
@@ -190,7 +190,7 @@ async def get_market_sentiment() -> dict[str, Any]:
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = response.content[0].text if response.content else ""
+        text = next((b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), "")
         return dict(json.loads(_json_strip(text)))
     except Exception:
         logger.exception("Failed to get market sentiment")
@@ -223,7 +223,7 @@ async def get_vault_recommendations(vault_id: str) -> dict[str, Any]:
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = response.content[0].text if response.content else ""
+        text = next((b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), "")
         return dict(json.loads(_json_strip(text)))
     except Exception:
         logger.exception(
