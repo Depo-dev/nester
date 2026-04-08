@@ -163,7 +163,9 @@ async def get_portfolio_insights(user_id: str) -> list[dict[str, Any]]:
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = next((b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), "")
+        text = next(
+            (b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), ""
+        )
         return list(json.loads(_json_strip(text)))
     except Exception:
         logger.exception("Failed to get portfolio insights for user %s", user_id)
@@ -190,7 +192,9 @@ async def get_market_sentiment() -> dict[str, Any]:
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = next((b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), "")
+        text = next(
+            (b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), ""
+        )
         return dict(json.loads(_json_strip(text)))
     except Exception:
         logger.exception("Failed to get market sentiment")
@@ -223,7 +227,9 @@ async def get_vault_recommendations(vault_id: str) -> dict[str, Any]:
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = next((b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), "")
+        text = next(
+            (b.text for b in response.content if isinstance(b, anthropic.types.TextBlock)), ""
+        )
         return dict(json.loads(_json_strip(text)))
     except Exception:
         logger.exception(
