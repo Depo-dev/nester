@@ -8,6 +8,8 @@ import {
     type LucideIcon,
 } from "lucide-react";
 
+export type SupportedAsset = "USDC" | "XLM";
+
 export interface VaultDefinition {
     id: string;
     name: string;
@@ -18,16 +20,35 @@ export interface VaultDefinition {
     icon: LucideIcon;
     color: string;
     strategies: string[];
-    lockDays: number;
+    lockDays: number | null;
     earlyWithdrawalPenaltyPct: number;
     performanceFeePct: number;
     managementFeePct: number;
-    asset: "USDC";
+    asset: SupportedAsset;
+    supportedAssets: SupportedAsset[];
 }
 
 // TODO: Once smart contracts are deployed and API is ready, these vault definitions
 // should be fetched from the backend API instead of being hardcoded.
 export const vaultDefinitions: VaultDefinition[] = [
+    {
+        id: "flex-savings",
+        name: "Flex Savings",
+        apy: 0.05,
+        apyLabel: "4-6%",
+        description:
+            "Your default landing vault. No lock period, withdraw anytime. Ideal as a starting point before moving to higher-yield vaults.",
+        risk: "Very Low",
+        icon: ShieldCheck,
+        color: "emerald",
+        strategies: ["Stablecoin lending", "Liquid reserves"],
+        lockDays: null,
+        earlyWithdrawalPenaltyPct: 0,
+        performanceFeePct: 5,
+        managementFeePct: 0,
+        asset: "USDC",
+        supportedAssets: ["USDC", "XLM"],
+    },
     {
         id: "conservative",
         name: "Conservative",
@@ -44,6 +65,7 @@ export const vaultDefinitions: VaultDefinition[] = [
         performanceFeePct: 10,
         managementFeePct: 0.5,
         asset: "USDC",
+        supportedAssets: ["USDC", "XLM"],
     },
     {
         id: "balanced",
@@ -61,6 +83,7 @@ export const vaultDefinitions: VaultDefinition[] = [
         performanceFeePct: 10,
         managementFeePct: 0.5,
         asset: "USDC",
+        supportedAssets: ["USDC", "XLM"],
     },
     {
         id: "growth",
@@ -78,6 +101,7 @@ export const vaultDefinitions: VaultDefinition[] = [
         performanceFeePct: 10,
         managementFeePct: 0.5,
         asset: "USDC",
+        supportedAssets: ["USDC"],
     },
     {
         id: "defi500",
@@ -95,6 +119,7 @@ export const vaultDefinitions: VaultDefinition[] = [
         performanceFeePct: 10,
         managementFeePct: 0.5,
         asset: "USDC",
+        supportedAssets: ["USDC"],
     },
 ];
 

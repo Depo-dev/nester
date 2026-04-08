@@ -45,6 +45,15 @@ function TypingDots() {
   )
 }
 
+function renderBold(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/)
+  return parts.map((part, i) =>
+    part.startsWith('**') && part.endsWith('**')
+      ? <strong key={i}>{part.slice(2, -2)}</strong>
+      : part
+  )
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
   const paragraphs = message.content.split('\n').filter((p) => p.trim() !== '')
@@ -64,7 +73,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       >
         {paragraphs.map((p, i) => (
           <p key={i} className={i > 0 ? 'mt-2' : ''}>
-            {p}
+            {renderBold(p)}
           </p>
         ))}
       </div>
@@ -175,7 +184,7 @@ export function PrometheusChatbot() {
             </div>
 
             {/* Messages */}
-            <div className="flex max-h-72 min-h-25 flex-col gap-3 overflow-y-auto p-4 scrollbar-thin">
+            <div className="flex max-h-72 min-h-25 flex-col gap-3 overflow-y-auto p-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {messages.length === 0 ? (
                 <p className="text-center text-[11px] text-muted-foreground">
                   Ask me anything about your portfolio or DeFi markets.

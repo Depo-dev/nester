@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NETWORKS, DEFAULT_NETWORK } from "@/lib/networks";
+import { WithdrawModal, TransferModal } from "@/components/vault-action-modals";
+import { type PortfolioPosition } from "@/components/portfolio-provider";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -373,6 +375,9 @@ function ActivityTab({ transactions }: { transactions: ReturnType<typeof usePort
 // ── Vault Positions Tab ───────────────────────────────────────────────────────
 
 function VaultPositionsSection({ positions }: { positions: ReturnType<typeof usePortfolio>["positions"] }) {
+    const [withdrawPos, setWithdrawPos] = useState<PortfolioPosition | null>(null);
+    const [transferPos, setTransferPos] = useState<PortfolioPosition | null>(null);
+
     if (positions.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -388,75 +393,104 @@ function VaultPositionsSection({ positions }: { positions: ReturnType<typeof use
     }
 
     return (
-        <div className="space-y-2">
-            {positions.map((pos, i) => {
-                const daysTotal = Math.round(
-                    (new Date(pos.maturityAt).getTime() - new Date(pos.depositedAt).getTime()) /
-                    (1000 * 60 * 60 * 24)
-                );
-                const daysElapsed = daysTotal - pos.daysRemaining;
-                const maturityPct = daysTotal > 0 ? Math.min(100, (daysElapsed / daysTotal) * 100) : 100;
+        <>
+            <div className="space-y-2">
+                {positions.map((pos, i) => {
+                    const daysTotal = Math.round(
+                        (new Date(pos.maturityAt).getTime() - new Date(pos.depositedAt).getTime()) /
+                        (1000 * 60 * 60 * 24)
+                    );
+                    const daysElapsed = daysTotal - pos.daysRemaining;
+                    const maturityPct = daysTotal > 0 ? Math.min(100, (daysElapsed / daysTotal) * 100) : 100;
 
-                return (
-                    <motion.div
-                        key={pos.id}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.05 }}
-                        className="rounded-xl border border-black/8 p-4 hover:border-black/15 transition-colors"
-                    >
-                        <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-sm font-medium text-black">{pos.vaultName}</span>
-                                    {pos.isMatured ? (
-                                        <span className="text-[10px] font-medium bg-black text-white rounded-full px-2 py-0.5">
-                                            Matured
-                                        </span>
-                                    ) : (
-                                        <span className="text-[10px] font-medium bg-black/6 text-black/50 rounded-full px-2 py-0.5">
-                                            {pos.daysRemaining}d left
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="mt-1 flex items-center gap-3">
-                                    <span className="text-xs text-black/40">{pos.asset}</span>
-                                    <span className="text-xs text-black/40">
-                                        APY {(pos.apy * 100).toFixed(1)}%
-                                    </span>
-                                </div>
-                                <div className="mt-2.5">
-                                    <div className="flex justify-between text-[10px] text-black/40 mb-1">
-                                        <span>Maturity progress</span>
-                                        <span>{maturityPct.toFixed(0)}%</span>
+                    return (
+                        <motion.div
+                            key={pos.id}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: i * 0.05 }}
+                            className="rounded-xl border border-black/8 p-4 hover:border-black/15 transition-colors"
+                        >
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-sm font-medium text-black">{pos.vaultName}</span>
+                                        {pos.isMatured ? (
+                                            <span className="text-[10px] font-medium bg-black text-white rounded-full px-2 py-0.5">
+                                                Matured
+                                            </span>
+                                        ) : (
+                                            <span className="text-[10px] font-medium bg-black/6 text-black/50 rounded-full px-2 py-0.5">
+                                                {pos.daysRemaining}d left
+                                            </span>
+                                        )}
                                     </div>
-                                    <div className="h-1 w-full overflow-hidden rounded-full bg-black/8">
-                                        <div
-                                            className="h-full rounded-full bg-black/50 transition-all"
-                                            style={{ width: `${maturityPct}%` }}
-                                        />
+                                    <div className="mt-1 flex items-center gap-3">
+                                        <span className="text-xs text-black/40">{pos.asset}</span>
+                                        <span className="text-xs text-black/40">
+                                            APY {(pos.apy * 100).toFixed(1)}%
+                                        </span>
+                                    </div>
+                                    <div className="mt-2.5">
+                                        <div className="flex justify-between text-[10px] text-black/40 mb-1">
+                                            <span>Maturity progress</span>
+                                            <span>{maturityPct.toFixed(0)}%</span>
+                                        </div>
+                                        <div className="h-1 w-full overflow-hidden rounded-full bg-black/8">
+                                            <div
+                                                className="h-full rounded-full bg-black/50 transition-all"
+                                                style={{ width: `${maturityPct}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col items-end gap-2 shrink-0">
+                                    <div className="text-right">
+                                        <p className="font-mono text-base font-semibold text-black">
+                                            {pos.currentValue.toLocaleString("en-US", {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                            })}
+                                        </p>
+                                        <p className="text-[11px] text-black/40 mt-0.5">
+                                            Principal: {pos.principal.toFixed(2)}
+                                        </p>
+                                        <p className="text-[11px] text-black/60 font-medium mt-0.5">
+                                            +{pos.yieldEarned.toFixed(4)} yield
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <button
+                                            onClick={() => setTransferPos(pos)}
+                                            className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-[10px] font-medium text-black/60 transition-colors hover:border-black/20 hover:text-black"
+                                        >
+                                            Transfer
+                                        </button>
+                                        <button
+                                            onClick={() => setWithdrawPos(pos)}
+                                            className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-[10px] font-medium text-black/60 transition-colors hover:border-black/20 hover:text-black"
+                                        >
+                                            Withdraw
+                                        </button>
                                     </div>
                                 </div>
                             </div>
-                            <div className="text-right shrink-0">
-                                <p className="font-mono text-base font-semibold text-black">
-                                    {pos.currentValue.toLocaleString("en-US", {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2,
-                                    })}
-                                </p>
-                                <p className="text-[11px] text-black/40 mt-0.5">
-                                    Principal: {pos.principal.toFixed(2)}
-                                </p>
-                                <p className="text-[11px] text-black/60 font-medium mt-0.5">
-                                    +{pos.yieldEarned.toFixed(4)} yield
-                                </p>
-                            </div>
-                        </div>
-                    </motion.div>
-                );
-            })}
-        </div>
+                        </motion.div>
+                    );
+                })}
+            </div>
+
+            <WithdrawModal
+                open={withdrawPos !== null}
+                onClose={() => setWithdrawPos(null)}
+                position={withdrawPos}
+            />
+            <TransferModal
+                open={transferPos !== null}
+                onClose={() => setTransferPos(null)}
+                position={transferPos}
+            />
+        </>
     );
 }
 
