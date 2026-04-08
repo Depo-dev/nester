@@ -5,8 +5,8 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
-from google import genai  # type: ignore[import-not-found]
-from google.genai import types  # type: ignore[import-not-found]
+from google import genai
+from google.genai import types
 
 from app.config import settings
 from app.services.conversation_store import store as conversation_store
