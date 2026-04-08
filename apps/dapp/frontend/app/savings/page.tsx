@@ -256,7 +256,7 @@ function DepositModal({
     vault: SavingsVault | null;
     onClose: () => void;
 }) {
-    const { balances } = usePortfolio();
+    const { balances, recordDeposit } = usePortfolio();
     const [amount, setAmount] = useState("");
     const [goalName, setGoalName] = useState("");
     const [selectedAsset, setSelectedAsset] = useState<"USDC" | "XLM">("USDC");
@@ -506,6 +506,22 @@ function DepositModal({
                             {/* CTA */}
                             <button
                                 disabled={!canSubmit}
+                                onClick={() => {
+                                    if (!vault || !canSubmit) return;
+                                    recordDeposit({
+                                        vault: {
+                                            id: vault.id,
+                                            name: vault.name,
+                                            asset: selectedAsset,
+                                            apy: vault.apy,
+                                            lockDays: vault.lockDays,
+                                            earlyWithdrawalPenaltyPct: vault.penaltyPct,
+                                        },
+                                        amount: parsedAmount,
+                                        txHash: "",
+                                    });
+                                    onClose();
+                                }}
                                 className="mt-8 flex w-full items-center justify-center gap-2 rounded-xl bg-black py-3.5 text-sm text-white transition-opacity disabled:opacity-35"
                             >
                                 Confirm Deposit

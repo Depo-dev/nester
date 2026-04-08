@@ -269,6 +269,7 @@ export function DepositModal({ open, onClose, vault }: DepositModalProps) {
       subtitle={`Build and sign a Soroban transaction to deposit ${selectedAsset} into this vault.`}
     >
       {vault && (
+        <>
         <div className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
           {/* ── Left: amount + preview ── */}
           <div className="border-b border-border p-6 lg:border-b-0 lg:border-r">
@@ -402,13 +403,12 @@ export function DepositModal({ open, onClose, vault }: DepositModalProps) {
             </div>
           </div>
 
-          {/* ── Right: transaction flow + actions ── */}
-          <div className="p-6">
-            <div className="rounded-3xl border border-border bg-white p-5">
+          {/* ── Right: transaction flow (lg+ only) ── */}
+          <div className="hidden lg:block p-6">
+            <div className="rounded-3xl border border-border bg-white p-5 h-full">
               <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
                 Transaction Flow
               </p>
-
               <div className="mt-4 space-y-3">
                 {TX_STEPS.map(({ label, activeStates }) => {
                   const done = activeStates.includes(state);
@@ -439,52 +439,11 @@ export function DepositModal({ open, onClose, vault }: DepositModalProps) {
                           <Clock3 className="h-4 w-4" />
                         )}
                       </div>
-                      <span className="text-sm text-foreground/80">
-                        {label}
-                      </span>
+                      <span className="text-sm text-foreground/80">{label}</span>
                     </div>
                   );
                 })}
               </div>
-
-              {/* Success receipt */}
-              {state === "success" && receipt && (
-                <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                  <div className="flex items-center gap-2 text-emerald-700">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <p className="text-sm font-medium">Deposit confirmed</p>
-                  </div>
-                  <p className="mt-2 text-sm text-emerald-800/80">
-                    {formatCurrency(amount)} {selectedAsset} deposited into the{" "}
-                    {vault.name} vault.
-                  </p>
-                  <p className="mt-1 font-mono text-[11px] text-emerald-800/60">
-                    {truncateTxHash(receipt.txHash)}
-                  </p>
-                  <div className="mt-3">
-                    <Link
-                      href={receipt.explorerUrl}
-                      target="_blank"
-                      className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-medium text-foreground shadow-sm hover:shadow"
-                    >
-                      View on Stellar Explorer
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </Link>
-                  </div>
-                </div>
-              )}
-
-              {/* Error state */}
-              {state === "error" && errorMsg && (
-                <div className="mt-5 rounded-2xl border border-destructive/20 bg-destructive/10 p-4">
-                  <div className="flex items-start gap-2 text-sm text-destructive">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>{errorMsg}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Info note when idle */}
               {state === "input" && (
                 <div className="mt-5 rounded-2xl border border-border bg-secondary/20 p-4">
                   <div className="flex items-start gap-3">
@@ -496,61 +455,96 @@ export function DepositModal({ open, onClose, vault }: DepositModalProps) {
                   </div>
                 </div>
               )}
-
-              {/* Actions */}
-              <div className="mt-5 flex gap-3">
-                <button
-                  onClick={reset}
-                  disabled={state === "signing" || state === "submitting"}
-                  className="flex-1 rounded-full border border-border bg-white px-5 py-3 text-sm font-medium text-foreground transition-colors hover:border-black/15 disabled:opacity-40"
-                >
-                  {state === "success" ? "Close" : "Cancel"}
-                </button>
-
-                {state !== "success" && (
-                  <button
-                    onClick={
-                      state === "error"
-                        ? () => {
-                            setState("input");
-                            setErrorMsg("");
-                          }
-                        : handleDeposit
-                    }
-                    disabled={
-                      state === "building" ||
-                      state === "signing" ||
-                      state === "submitting" ||
-                      (state === "input" && !canSubmit)
-                    }
-                    className="flex-1 rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {state === "building" && (
-                      <span className="inline-flex items-center justify-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Building
-                      </span>
-                    )}
-                    {state === "signing" && (
-                      <span className="inline-flex items-center justify-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Awaiting Signature
-                      </span>
-                    )}
-                    {state === "submitting" && (
-                      <span className="inline-flex items-center justify-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Submitting
-                      </span>
-                    )}
-                    {state === "error" && "Try Again"}
-                    {state === "input" && "Confirm Deposit"}
-                  </button>
-                )}
-              </div>
             </div>
           </div>
         </div>
+
+        {/* ── Bottom: status + actions (always visible) ── */}
+
+        <div className="border-t border-border px-6 pb-6 pt-5">
+          {state === "success" && receipt && (
+            <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <div className="flex items-center gap-2 text-emerald-700">
+                <CheckCircle2 className="h-4 w-4" />
+                <p className="text-sm font-medium">Deposit confirmed</p>
+              </div>
+              <p className="mt-2 text-sm text-emerald-800/80">
+                {formatCurrency(amount)} {selectedAsset} deposited into the {vault?.name} vault.
+              </p>
+              <p className="mt-1 font-mono text-[11px] text-emerald-800/60">
+                {truncateTxHash(receipt.txHash)}
+              </p>
+              <div className="mt-3">
+                <Link
+                  href={receipt.explorerUrl}
+                  target="_blank"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-medium text-foreground shadow-sm hover:shadow"
+                >
+                  View on Stellar Explorer
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {state === "error" && errorMsg && (
+            <div className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-4">
+              <div className="flex items-start gap-2 text-sm text-destructive">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <button
+              onClick={reset}
+              disabled={state === "signing" || state === "submitting"}
+              className="flex-1 rounded-full border border-border bg-white px-5 py-3 text-sm font-medium text-foreground transition-colors hover:border-black/15 disabled:opacity-40"
+            >
+              {state === "success" ? "Close" : "Cancel"}
+            </button>
+
+            {state !== "success" && (
+              <button
+                onClick={
+                  state === "error"
+                    ? () => { setState("input"); setErrorMsg(""); }
+                    : handleDeposit
+                }
+                disabled={
+                  state === "building" ||
+                  state === "signing" ||
+                  state === "submitting" ||
+                  (state === "input" && !canSubmit)
+                }
+                className="flex-1 rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {state === "building" && (
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Building
+                  </span>
+                )}
+                {state === "signing" && (
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Awaiting Signature
+                  </span>
+                )}
+                {state === "submitting" && (
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Submitting
+                  </span>
+                )}
+                {state === "error" && "Try Again"}
+                {state === "input" && "Confirm Deposit"}
+              </button>
+            )}
+          </div>
+        </div>
+        </>
       )}
     </ModalShell>
   );

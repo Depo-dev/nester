@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { NETWORKS, DEFAULT_NETWORK } from "@/lib/networks";
 import { WithdrawModal, TransferModal } from "@/components/vault-action-modals";
 import { type PortfolioPosition } from "@/components/portfolio-provider";
+import { useTokenPrices } from "@/hooks/useTokenPrices";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -564,11 +565,19 @@ export default function PortfolioPage() {
         }
     };
 
+    const { prices: tokenPrices } = useTokenPrices();
+
     const xlmBalance = assets.find((a) => a.code === "XLM")?.balance ?? 0;
+    const usdcBalance = assets.find((a) => a.code === "USDC")?.balance ?? 0;
     const totalAssets = assets.length;
     const customTokens = assets.filter((a) => a.type === "token").length;
     const vaultTotal = positions.reduce((sum, p) => sum + p.currentValue, 0);
     const totalYield = positions.reduce((sum, p) => sum + p.yieldEarned, 0);
+
+    // Total portfolio in USD = wallet assets + vault positions
+    const walletUsd = xlmBalance * tokenPrices.XLM + usdcBalance * tokenPrices.USDC;
+    const vaultUsd = vaultTotal; // vault positions are already in USDC
+    const totalUsd = walletUsd + vaultUsd;
 
     const displayValue = (val: number | string) =>
         hideBalances ? "••••••" : typeof val === "number" ? val.toFixed(2) : val;
@@ -735,13 +744,20 @@ export default function PortfolioPage() {
                             </p>
                             <div className="flex items-baseline gap-3 flex-wrap">
                                 <span className="font-heading text-4xl font-light text-black sm:text-5xl">
-                                    {hideBalances ? "••••••" : xlmBalance.toLocaleString("en-US", {
+                                    {hideBalances ? "••••••" : `$${totalUsd.toLocaleString("en-US", {
                                         minimumFractionDigits: 2,
                                         maximumFractionDigits: 2,
-                                    })}
+                                    })}`}
                                 </span>
-                                <span className="text-lg text-black/40 font-light">XLM</span>
+                                <span className="text-lg text-black/40 font-light">USD</span>
                             </div>
+                            {!hideBalances && tokenPrices.XLM > 0 && (
+                                <div className="mt-2 flex items-center gap-3 text-xs text-black/35">
+                                    <span>{xlmBalance.toLocaleString("en-US", { maximumFractionDigits: 2 })} XLM @ ${tokenPrices.XLM.toFixed(4)}</span>
+                                    {usdcBalance > 0 && <span>· {usdcBalance.toLocaleString("en-US", { maximumFractionDigits: 2 })} USDC</span>}
+                                    {vaultTotal > 0 && <span>· ${vaultTotal.toFixed(2)} in vaults</span>}
+                                </div>
+                            )}
                             {lastRefreshed && (
                                 <p className="mt-2 text-xs text-black/30">
                                     Updated {lastRefreshed.toLocaleTimeString()}
