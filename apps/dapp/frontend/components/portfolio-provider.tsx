@@ -11,6 +11,7 @@ import {
 
 import { useWallet } from "@/components/wallet-provider";
 import { getVaultById, type SupportedAsset } from "@/lib/vault-data";
+import { useNetwork } from "@/hooks/useNetwork";
 
 export type PortfolioTransactionType =
     | "Deposit"
@@ -161,6 +162,8 @@ function PortfolioStore({
     address: string | null;
     children: ReactNode;
 }) {
+    const { currentNetwork } = useNetwork();
+
     const initialState = useMemo(() => {
         if (!address || typeof window === "undefined") {
             return {
@@ -220,6 +223,43 @@ function PortfolioStore({
             })
         );
     }, [address, balances, storedPositions, transactions]);
+
+    // Sync real on-chain balances from Horizon whenever address or network changes
+    useEffect(() => {
+        if (!address) return;
+
+        const fetchOnChainBalances = async () => {
+            try {
+                const res = await fetch(
+                    `${currentNetwork.horizonUrl}/accounts/${address}`
+                );
+                if (!res.ok) return;
+                const data = await res.json() as {
+                    balances?: Array<{
+                        asset_type: string;
+                        asset_code?: string;
+                        balance: string;
+                    }>;
+                };
+                const raw = data.balances ?? [];
+
+                const xlm = raw.find((b) => b.asset_type === "native");
+                const usdc = raw.find(
+                    (b) => b.asset_type !== "native" && b.asset_code === "USDC"
+                );
+
+                setBalances((prev) => ({
+                    ...prev,
+                    XLM: xlm ? parseFloat(xlm.balance) : (prev.XLM ?? 0),
+                    USDC: usdc ? parseFloat(usdc.balance) : (prev.USDC ?? 0),
+                }));
+            } catch {
+                // silently ignore — local balances remain as fallback
+            }
+        };
+
+        fetchOnChainBalances();
+    }, [address, currentNetwork.horizonUrl]);
 
     const positions = useMemo(
         () =>
