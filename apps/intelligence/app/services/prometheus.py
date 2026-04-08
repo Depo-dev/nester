@@ -3,27 +3,26 @@
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any, cast
+from typing import Any
 
-from google import genai
-from google.genai import types
+import anthropic
 
 from app.config import settings
 from app.services.conversation_store import store as conversation_store
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.0-flash"
+MODEL = "claude-sonnet-4-6"
 CHAT_MAX_TOKENS = 1024
 ANALYZE_MAX_TOKENS = 800
 
-_client: genai.Client | None = None
+_client: anthropic.AsyncAnthropic | None = None
 
 
-def get_client() -> genai.Client:
+def get_client() -> anthropic.AsyncAnthropic:
     global _client
     if _client is None:
-        _client = genai.Client(api_key=settings.gemini_api_key)
+        _client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     return _client
 
 
@@ -81,19 +80,16 @@ is reading a sidebar panel, not an article. Do not use bullet points for simple 
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _to_gemini_history(history: list[dict[str, str]]) -> list[types.Content]:
-    """Convert conversation store format to Gemini Content objects.
+def _to_anthropic_messages(history: list[dict[str, str]]) -> list[anthropic.types.MessageParam]:
+    """Convert conversation store format to Anthropic message params.
 
     Conversation store uses {"role": "user"|"assistant", "content": str}.
-    Gemini uses role "user" or "model" with parts.
+    Anthropic uses the same role names.
     """
-    result = []
-    for msg in history:
-        role = "model" if msg["role"] == "assistant" else "user"
-        result.append(
-            types.Content(role=role, parts=[types.Part(text=msg["content"])])
-        )
-    return result
+    return [
+        {"role": msg["role"], "content": msg["content"]}  # type: ignore[misc]
+        for msg in history
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +97,7 @@ def _to_gemini_history(history: list[dict[str, str]]) -> list[types.Content]:
 # ---------------------------------------------------------------------------
 
 async def stream_chat(user_id: str, message: str) -> AsyncIterator[str]:
-    """Yield SSE-formatted data strings for a streaming Gemini response.
+    """Yield SSE-formatted data strings for a streaming Claude response.
 
     Each yielded string is formatted as `data: <text>\\n\\n`.
     A final `data: [DONE]\\n\\n` is yielded when the stream ends.
@@ -109,35 +105,30 @@ async def stream_chat(user_id: str, message: str) -> AsyncIterator[str]:
     history = conversation_store.get(user_id)
     conversation_store.append(user_id, "user", message)
 
-    # Build contents: history + current message
-    contents = _to_gemini_history(history) + [
-        types.Content(role="user", parts=[types.Part(text=message)])
+    messages = _to_anthropic_messages(history) + [
+        {"role": "user", "content": message}
     ]
 
     client = get_client()
     full_response = ""
 
     try:
-        stream = await client.aio.models.generate_content_stream(
+        async with client.messages.stream(
             model=MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                max_output_tokens=CHAT_MAX_TOKENS,
-            ),
-        )
-        async for chunk in stream:
-            if chunk.text:
-                full_response += chunk.text
-                # Escape newlines so each SSE data line stays on one line
-                safe = chunk.text.replace("\n", "\\n")
+            max_tokens=CHAT_MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+        ) as stream:
+            async for text in stream.text_stream:
+                full_response += text
+                safe = text.replace("\n", "\\n")
                 yield f"data: {safe}\n\n"
 
         conversation_store.append(user_id, "assistant", full_response)
         yield "data: [DONE]\n\n"
 
     except Exception:
-        logger.exception("Gemini streaming error for user %s", user_id)
+        logger.exception("Anthropic streaming error for user %s", user_id)
         yield "data: Sorry, I had trouble connecting. Please try again.\n\n"
         yield "data: [DONE]\n\n"
 
@@ -166,15 +157,14 @@ async def get_portfolio_insights(user_id: str) -> list[dict[str, Any]]:
 
     client = get_client()
     try:
-        response = await client.aio.models.generate_content(
+        response = await client.messages.create(
             model=MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                max_output_tokens=ANALYZE_MAX_TOKENS,
-            ),
+            max_tokens=ANALYZE_MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
         )
-        return cast(list[dict[str, Any]], json.loads(_json_strip(response.text)))
+        text = response.content[0].text if response.content else ""
+        return list(json.loads(_json_strip(text)))
     except Exception:
         logger.exception("Failed to get portfolio insights for user %s", user_id)
         return []
@@ -194,15 +184,14 @@ async def get_market_sentiment() -> dict[str, Any]:
 
     client = get_client()
     try:
-        response = await client.aio.models.generate_content(
+        response = await client.messages.create(
             model=MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                max_output_tokens=200,
-            ),
+            max_tokens=200,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
         )
-        return cast(dict[str, Any], json.loads(_json_strip(response.text)))
+        text = response.content[0].text if response.content else ""
+        return dict(json.loads(_json_strip(text)))
     except Exception:
         logger.exception("Failed to get market sentiment")
         return {
@@ -228,15 +217,14 @@ async def get_vault_recommendations(vault_id: str) -> dict[str, Any]:
 
     client = get_client()
     try:
-        response = await client.aio.models.generate_content(
+        response = await client.messages.create(
             model=MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                max_output_tokens=ANALYZE_MAX_TOKENS,
-            ),
+            max_tokens=ANALYZE_MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
         )
-        return cast(dict[str, Any], json.loads(_json_strip(response.text)))
+        text = response.content[0].text if response.content else ""
+        return dict(json.loads(_json_strip(text)))
     except Exception:
         logger.exception(
             "Failed to get vault recommendations for vault %s", vault_id

@@ -142,7 +142,8 @@ export function DepositModal({
         trigger,
         reset: resetForm
     } = useForm<FormValues>({
-        resolver: zodResolver(formSchema),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        resolver: zodResolver(formSchema as any),
         mode: "onBlur",
         defaultValues: { amount: "" }
     });
@@ -533,7 +534,8 @@ export function WithdrawModal({
         trigger,
         reset: resetForm
     } = useForm<FormValues>({
-        resolver: zodResolver(formSchema),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        resolver: zodResolver(formSchema as any),
         mode: "onBlur",
         defaultValues: { amount: "" }
     });
