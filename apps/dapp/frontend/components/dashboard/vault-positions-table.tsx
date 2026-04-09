@@ -52,11 +52,11 @@ export function VaultPositionsTable({ positions }: VaultPositionsTableProps) {
                     <table className="w-full text-left border-collapse min-w-[600px]">
                         <thead>
                             <tr className="border-b border-border bg-secondary/5">
-                                <th className="px-6 py-3.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Vault</th>
-                                <th className="px-6 py-3.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Balance</th>
-                                <th className="px-6 py-3.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider text-right">APY</th>
-                                <th className="px-6 py-3.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Risk</th>
-                                <th className="px-6 py-3.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider text-right">Actions</th>
+                                <th className="px-6 py-3.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Vault</th>
+                                <th className="px-6 py-3.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Balance</th>
+                                <th className="px-6 py-3.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider text-right">APY</th>
+                                <th className="px-6 py-3.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Risk</th>
+                                <th className="px-6 py-3.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
@@ -80,7 +80,7 @@ export function VaultPositionsTable({ positions }: VaultPositionsTableProps) {
                                             <span className="text-[10px] text-emerald-600 font-mono">+{formatValue(pos.yieldEarned)} earned</span>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-5 text-right font-mono text-sm text-emerald-600 font-bold">
+                                    <td className="px-6 py-5 text-right font-mono text-sm text-emerald-600">
                                         {pos.apy}
                                     </td>
                                     <td className="px-6 py-5">

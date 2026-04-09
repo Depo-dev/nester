@@ -21,7 +21,7 @@ import {
     usePortfolio,
     type PortfolioPosition,
 } from "@/components/portfolio-provider";
-import { WithdrawModal } from "@/components/vault/withdrawModal";
+import { WithdrawModal } from "@/components/vault-action-modals";
 import { cn } from "@/lib/utils";
 import { GuidedTour } from "@/components/onboarding/GuidedTour";
 import { useTokenPrices } from "@/hooks/useTokenPrices";
