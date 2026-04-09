@@ -21,6 +21,7 @@ import { AppShell } from "@/components/app-shell";
 import { useWallet } from "@/components/wallet-provider";
 import { usePortfolio } from "@/components/portfolio-provider";
 import { cn } from "@/lib/utils";
+import { PositionCards } from "@/components/position-cards";
 import {
     buildDepositTransaction,
     signTransaction,
@@ -752,6 +753,25 @@ export default function SavingsPage() {
                         />
                     ))}
                 </div>
+
+                {/* ── Open positions ──────────────────────────────────────── */}
+                {(() => {
+                    const savingsIds = SAVINGS_VAULTS.map((v) => v.id);
+                    const savingsPositions = positions.filter((p) => savingsIds.includes(p.vaultId));
+                    if (savingsPositions.length === 0) return null;
+                    return (
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.2 }}
+                            className="mt-8"
+                        >
+                            <h2 className="text-sm text-black mb-3">Your Savings Positions</h2>
+                            <PositionCards positions={savingsPositions} />
+                        </motion.div>
+                    );
+                })()}
+
             <DepositModal vault={selectedVault} onClose={() => setSelectedVault(null)} />
         </AppShell>
     );

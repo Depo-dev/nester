@@ -8,7 +8,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/app-shell";
 import { DepositModal } from "@/components/vault/depositModal";
+import { PositionCards } from "@/components/position-cards";
 import { useWallet } from "@/components/wallet-provider";
+import { usePortfolio } from "@/components/portfolio-provider";
 import {
     ArrowUpRight,
     LayoutList,
@@ -406,9 +408,13 @@ function StatsBarWrapper() {
 
 export default function VaultsPage() {
     const { isConnected } = useWallet();
+    const { positions } = usePortfolio();
     const router = useRouter();
     const [selectedVault, setSelectedVault] = useState<VaultType | null>(null);
     const [view, setView] = useState<"list" | "grid">("list");
+
+    const MARKET_IDS = ["usdc", "xlm", "xlm-usdc", "defi500"];
+    const marketPositions = positions.filter((p) => MARKET_IDS.includes(p.vaultId));
 
     useEffect(() => {
         if (!isConnected) router.push("/");
@@ -461,6 +467,20 @@ export default function VaultsPage() {
                 <Suspense>
                     <VaultsPageContent view={view} onSelect={setSelectedVault} />
                 </Suspense>
+
+                {/* Open positions */}
+                {marketPositions.length > 0 && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                        className="mt-8"
+                    >
+                        <h2 className="text-sm text-black mb-3">Your Market Positions</h2>
+                        <PositionCards positions={marketPositions} />
+                    </motion.div>
+                )}
+
             <DepositModal
                 open={!!selectedVault}
                 onClose={() => setSelectedVault(null)}

@@ -6,7 +6,9 @@ import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/app-shell";
+import { PositionCards } from "@/components/position-cards";
 import { useWallet } from "@/components/wallet-provider";
+import { usePortfolio } from "@/components/portfolio-provider";
 import {
     ArrowUpRight,
     ArrowDownRight,
@@ -241,6 +243,7 @@ function BuyModal({ stock, onClose }: { stock: TokenizedStock; onClose: () => vo
 
 export default function StocksPage() {
     const { isConnected } = useWallet();
+    const { positions } = usePortfolio();
     const router = useRouter();
     const [filter, setFilter] = useState<CategoryFilter>("all");
     const [search, setSearch] = useState("");
@@ -437,6 +440,23 @@ export default function StocksPage() {
                     ))
                 )}
             </motion.div>
+
+            {/* Open positions */}
+            {(() => {
+                const stockPositions = positions.filter((p) => p.vaultId === "stocks");
+                if (stockPositions.length === 0) return null;
+                return (
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                        className="mt-8"
+                    >
+                        <h2 className="text-sm text-black mb-3">Your Stock Positions</h2>
+                        <PositionCards positions={stockPositions} />
+                    </motion.div>
+                );
+            })()}
 
             {/* Buy modal */}
             {selectedStock && (

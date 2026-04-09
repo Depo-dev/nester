@@ -70,7 +70,7 @@ function ModalShell({
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: 12, scale: 0.98 }}
                             transition={{ duration: 0.2 }}
-                            className="w-full max-w-2xl overflow-hidden rounded-[28px] border border-white/10 bg-[#fafafa] shadow-2xl"
+                            className="w-full max-w-2xl overflow-hidden rounded-[28px] border border-white/10 bg-[#fafafa] shadow-2xl max-h-[90vh] flex flex-col"
                         >
                             <div className="flex items-start justify-between border-b border-border px-6 py-5">
                                 <div>
@@ -91,7 +91,9 @@ function ModalShell({
                                     <X className="h-4 w-4" />
                                 </button>
                             </div>
-                            {children}
+                            <div className="overflow-y-auto flex-1">
+                                {children}
+                            </div>
                         </motion.div>
                     </div>
                 </motion.div>
@@ -662,281 +664,198 @@ export function WithdrawModal({
             subtitle="Review maturity, penalty, and expected net proceeds before signing."
         >
             {position && (
-                <div className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
-                    <div className="border-b border-border p-6 lg:border-b-0 lg:border-r">
-                        <div className="rounded-3xl border border-border bg-white p-5">
-                            <div className="mb-4">
-                                <span className={cn(
-                                    "text-xs font-medium px-2 py-1 rounded-full uppercase tracking-wider",
-                                    currentNetwork.id === 'testnet' ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
-                                )}>
-                                    {currentNetwork.id.toUpperCase()} TRANSACTION
-                                </span>
-                            </div>
-                            <div className="grid gap-3 sm:grid-cols-2">
-                                <div className="rounded-2xl border border-border bg-secondary/20 p-4">
-                                    <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                                        Current value
-                                    </p>
-                                    <p className="mt-2 font-heading text-3xl font-light text-foreground">
-                                        {formatCurrency(position.currentValue)}
-                                    </p>
-                                    <p className="mt-1 text-xs text-muted-foreground">
-                                        {formatCurrency(position.shares)} nVault shares
-                                    </p>
-                                </div>
-                                <div className="rounded-2xl border border-border bg-secondary/20 p-4">
-                                    <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                                        Yield earned
-                                    </p>
-                                    <p className="mt-2 font-heading text-3xl font-light text-emerald-600">
-                                        {formatCurrency(position.yieldEarned)}
-                                    </p>
-                                    <p className="mt-1 text-xs text-muted-foreground">
-                                        Since deposit
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div className="mt-4 rounded-2xl border border-border bg-[#fafafa] p-4">
-                                <div className="flex items-start justify-between gap-4">
-                                    <div>
-                                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                                            Maturity
-                                        </p>
-                                        <p className="mt-2 text-sm font-medium text-foreground">
-                                            {position.isMatured
-                                                ? "Matured - no penalty applies"
-                                                : `${position.daysRemaining} day${position.daysRemaining === 1 ? "" : "s"} remaining`}
-                                        </p>
-                                    </div>
-                                    <span
-                                        className={cn(
-                                            "rounded-full px-3 py-2 text-xs font-medium",
-                                            position.isMatured
-                                                ? "bg-emerald-50 text-emerald-700"
-                                                : "bg-amber-50 text-amber-700"
-                                        )}
-                                    >
-                                        {position.isMatured
-                                            ? "Penalty free"
-                                            : `${position.earlyWithdrawalPenaltyPct.toFixed(1)}% early exit`}
-                                    </span>
-                                </div>
-
-                                <div className="mt-4">
-                                    <label className="mb-2 block text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                                        Withdrawal Amount
-                                    </label>
-                                    <Controller
-                                        name="amount"
-                                        control={control}
-                                        render={({ field: { onChange, onBlur, value } }) => (
-                                            <>
-                                                <div className={cn(
-                                                    "flex items-center gap-3 rounded-2xl border bg-white px-4 py-4",
-                                                    errors.amount ? "border-red-500" : "border-border"
-                                                )}>
-                                                    <input
-                                                        type="text"
-                                                        inputMode="decimal"
-                                                        value={value}
-                                                        onChange={(event) => {
-                                                            const next = event.target.value;
-                                                            if (/^\d*\.?\d*$/.test(next)) {
-                                                                onChange(next);
-                                                                if (isDirty) trigger("amount");
-                                                                setState("input");
-                                                                setShowLargeWarning(false);
-                                                            }
-                                                        }}
-                                                        onBlur={onBlur}
-                                                        onPaste={() => setTimeout(() => trigger("amount"), 0)}
-                                                        placeholder="0.00"
-                                                        className={cn(
-                                                            "min-w-0 flex-1 bg-transparent font-heading text-3xl font-light outline-none placeholder:text-muted-foreground/40",
-                                                            errors.amount && "text-red-500"
-                                                        )}
-                                                    />
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="rounded-full bg-secondary px-3 py-2 text-sm font-medium text-foreground">
-                                                            USDC
-                                                        </span>
-                                                        <button
-                                                            onClick={() => {
-                                                                onChange(position.currentValue.toFixed(2));
-                                                                trigger("amount");
-                                                                setShowLargeWarning(false);
-                                                            }}
-                                                            className="rounded-full border border-border bg-white px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-black/15"
-                                                        >
-                                                            Max
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                                {errors.amount && (
-                                                    <span className="text-xs text-red-500 font-medium mt-2 block">{errors.amount.message}</span>
-                                                )}
-                                            </>
-                                        )}
-                                    />
-                                </div>
-
-                                <div className="mt-4 space-y-3">
-                                    <div className="flex items-center justify-between text-sm">
-                                        <span className="text-muted-foreground">Gross withdrawal</span>
-                                        <span className="font-medium text-foreground">
-                                            {formatCurrency(quote?.grossAmount ?? 0)} USDC
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center justify-between text-sm">
-                                        <span className="text-muted-foreground">Performance Fee (10% of yield)</span>
-                                        <span className="font-medium text-foreground">
-                                            {formatCurrency(Math.max(0, (quote?.grossAmount ?? 0) - (quote?.sharesBurned ?? 0)) * 0.1)} USDC
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center justify-between text-sm">
-                                        <span className="text-muted-foreground">Net amount to wallet</span>
-                                        <span className="font-medium text-foreground">
-                                            {formatCurrency(quote?.netAmount ?? 0)} USDC
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center justify-between text-sm">
-                                        <span className="text-muted-foreground">Shares burned</span>
-                                        <span className="font-medium text-foreground">
-                                            {formatCurrency(quote?.sharesBurned ?? 0)}
-                                        </span>
-                                    </div>
-                                    {currentNetwork.id === 'mainnet' && (
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="text-muted-foreground">Estimated Network Fee</span>
-                                            <span className="font-medium text-foreground">
-                                                ~0.00001 XLM
-                                            </span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
+                <div className="p-6 space-y-4">
+                    {/* Position stats */}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-border bg-white p-4">
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                                Current value
+                            </p>
+                            <p className="mt-2 font-heading text-3xl font-light text-foreground">
+                                {formatCurrency(position.currentValue)}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                {formatCurrency(position.shares)} nVault shares
+                            </p>
+                        </div>
+                        <div className="rounded-2xl border border-border bg-white p-4">
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                                Yield earned
+                            </p>
+                            <p className="mt-2 font-heading text-3xl font-light text-emerald-600">
+                                {formatCurrency(position.yieldEarned)}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                Since deposit
+                            </p>
                         </div>
                     </div>
 
-                    <div className="p-6">
-                        <div className="rounded-3xl border border-border bg-white p-5">
-                            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                                Confirmation
-                            </p>
-                            <div className="mt-4 rounded-2xl border border-border bg-secondary/20 p-4 text-sm text-muted-foreground">
-                                <div className="flex items-start gap-3">
-                                    <Sparkles className="mt-0.5 h-4 w-4 text-foreground/70" />
-                                    <div className="space-y-2">
-                                        <p>
-                                            Partial withdrawals burn shares proportionally and leave the rest of the position invested.
-                                        </p>
-                                        <p>
-                                            Full withdrawals burn all shares, release the full net balance, and remove the position from your dashboard.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {state === "success" && receipt ? (
-                                <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                                    <div className="flex items-center gap-2 text-emerald-700">
-                                        <CheckCircle2 className="h-4 w-4" />
-                                        <p className="text-sm font-medium">
-                                            Withdrawal confirmed
-                                        </p>
-                                    </div>
-                                    <p className="mt-2 text-sm text-emerald-800/80">
-                                        {formatCurrency(receipt.netAmount)} USDC is on its way back to your wallet.
-                                    </p>
-                                    <p className="mt-1 text-xs text-emerald-800/70">
-                                        Penalty applied: {formatCurrency(receipt.penaltyAmount)} USDC
-                                    </p>
-                                    <div className="mt-4 flex flex-wrap gap-2">
-                                        <Link
-                                            href={receipt.explorerUrl}
-                                            target="_blank"
-                                            className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-medium text-foreground shadow-sm"
-                                        >
-                                            View on Explorer
-                                            <ExternalLink className="h-3.5 w-3.5" />
-                                        </Link>
-                                        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white px-3 py-2 text-xs text-emerald-700">
-                                            {receipt.walletPopupUsed
-                                                ? "Wallet signature captured"
-                                                : "Mock signature used"}
-                                        </span>
-                                    </div>
-                                </div>
-                            ) : error ? (
-                                <div className="mt-5 rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
-                                    <div className="flex items-start gap-2">
-                                        <AlertCircle className="mt-0.5 h-4 w-4" />
-                                        <span>{error}</span>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="mt-5 rounded-2xl border border-border bg-white p-4">
-                                    <div className="space-y-3">
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="text-muted-foreground">Current position</span>
-                                            <span className="font-medium text-foreground">
-                                                {formatCurrency(position.currentValue)} USDC
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="text-muted-foreground">Available now</span>
-                                            <span className="font-medium text-foreground">
-                                                {formatCurrency(quote?.netAmount ?? position.currentValue)} USDC
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {showLargeWarning && (
-                                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                                    <div className="flex items-start gap-2">
-                                        <AlertCircle className="mt-0.5 h-4 w-4" />
-                                        <span>
-                                            You&apos;re about to withdraw ${formatCurrency(amount)} — are you sure?
-                                        </span>
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="mt-5 flex gap-3">
-                                <button
-                                    onClick={reset}
-                                    className="flex-1 rounded-full border border-border bg-white px-5 py-3 text-sm font-medium text-foreground transition-colors hover:border-black/15"
-                                >
-                                    {state === "success" ? "Close" : "Cancel"}
-                                </button>
-                                {state !== "success" && (
-                                    <button
-                                        onClick={handleWithdraw}
-                                        disabled={!canSubmit || state === "confirming" || state === "submitting"}
-                                        className="flex-1 rounded-full bg-brand-dark px-5 py-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                                    >
-                                        {state === "confirming" && (
-                                            <span className="inline-flex items-center gap-2">
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                Awaiting Signature
-                                            </span>
-                                        )}
-                                        {state === "submitting" && (
-                                            <span className="inline-flex items-center gap-2">
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                Submitting
-                                            </span>
-                                        )}
-                                        {(state === "input" || state === "error") &&
-                                            (showLargeWarning ? "Yes, confirm withdrawal" : "Confirm Withdrawal")}
-                                    </button>
-                                )}
+                    {/* Maturity */}
+                    {!position.isMatured && (
+                        <div className="flex items-start gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                            <div className="text-xs text-amber-800">
+                                <p className="font-medium">Early withdrawal penalty applies</p>
+                                <p className="mt-0.5">
+                                    {position.daysRemaining} day{position.daysRemaining !== 1 ? "s" : ""} until maturity.
+                                    A {position.earlyWithdrawalPenaltyPct.toFixed(1)}% fee will be deducted.
+                                </p>
                             </div>
                         </div>
+                    )}
+
+                    {/* Amount input */}
+                    <div>
+                        <label className="mb-2 block text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                            Withdrawal Amount
+                        </label>
+                        <Controller
+                            name="amount"
+                            control={control}
+                            render={({ field: { onChange, onBlur, value } }) => (
+                                <>
+                                    <div className={cn(
+                                        "flex items-center gap-3 rounded-2xl border bg-white px-4 py-4",
+                                        errors.amount ? "border-red-500" : "border-border"
+                                    )}>
+                                        <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={value}
+                                            onChange={(event) => {
+                                                const next = event.target.value;
+                                                if (/^\d*\.?\d*$/.test(next)) {
+                                                    onChange(next);
+                                                    if (isDirty) trigger("amount");
+                                                    setState("input");
+                                                    setShowLargeWarning(false);
+                                                }
+                                            }}
+                                            onBlur={onBlur}
+                                            onPaste={() => setTimeout(() => trigger("amount"), 0)}
+                                            placeholder="0.00"
+                                            className={cn(
+                                                "min-w-0 flex-1 bg-transparent font-heading text-3xl font-light outline-none placeholder:text-muted-foreground/40",
+                                                errors.amount && "text-red-500"
+                                            )}
+                                        />
+                                        <div className="flex items-center gap-2">
+                                            <span className="rounded-full bg-secondary px-3 py-2 text-sm font-medium text-foreground">
+                                                {position.asset ?? "USDC"}
+                                            </span>
+                                            <button
+                                                onClick={() => {
+                                                    onChange(position.currentValue.toFixed(2));
+                                                    trigger("amount");
+                                                    setShowLargeWarning(false);
+                                                }}
+                                                className="rounded-full border border-border bg-white px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-black/15"
+                                            >
+                                                Max
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {errors.amount && (
+                                        <span className="text-xs text-red-500 font-medium mt-2 block">{errors.amount.message}</span>
+                                    )}
+                                </>
+                            )}
+                        />
+                    </div>
+
+                    {/* Breakdown */}
+                    <div className="space-y-2.5 rounded-2xl border border-border bg-white p-4 text-sm">
+                        {[
+                            { label: "Gross proceeds", value: `${formatCurrency(quote?.grossAmount ?? 0)} ${position.asset ?? "USDC"}` },
+                            { label: "Early exit penalty", value: `${formatCurrency(quote ? quote.grossAmount - quote.netAmount : 0)} ${position.asset ?? "USDC"}` },
+                            { label: "Net to wallet", value: `${formatCurrency(quote?.netAmount ?? 0)} ${position.asset ?? "USDC"}`, highlight: true },
+                            { label: "Shares burned", value: formatCurrency(quote?.sharesBurned ?? 0) },
+                        ].map(({ label, value, highlight }) => (
+                            <div key={label} className="flex items-center justify-between">
+                                <span className="text-muted-foreground">{label}</span>
+                                <span className={cn("font-medium", highlight ? "text-emerald-600" : "text-foreground")}>
+                                    {value}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Success receipt */}
+                    {state === "success" && receipt && (
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                            <div className="flex items-center gap-2 text-emerald-700">
+                                <CheckCircle2 className="h-4 w-4" />
+                                <p className="text-sm font-medium">Withdrawal confirmed</p>
+                            </div>
+                            <p className="mt-2 text-sm text-emerald-800/80">
+                                {formatCurrency(receipt.netAmount)} {position.asset ?? "USDC"} is on its way back to your wallet.
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                                <Link
+                                    href={receipt.explorerUrl}
+                                    target="_blank"
+                                    className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-medium text-foreground shadow-sm"
+                                >
+                                    View on Explorer
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                </Link>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Error */}
+                    {error && state === "error" && (
+                        <div className="rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
+                            <div className="flex items-start gap-2">
+                                <AlertCircle className="mt-0.5 h-4 w-4" />
+                                <span>{error}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Large amount warning */}
+                    {showLargeWarning && (
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                            <div className="flex items-start gap-2">
+                                <AlertCircle className="mt-0.5 h-4 w-4" />
+                                <span>
+                                    You&apos;re about to withdraw {formatCurrency(amount)} {position.asset ?? "USDC"} — are you sure?
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Action buttons — always visible */}
+                    <div className="flex gap-3 pt-2">
+                        <button
+                            onClick={reset}
+                            className="flex-1 rounded-full border border-border bg-white px-5 py-3 text-sm font-medium text-foreground transition-colors hover:border-black/15"
+                        >
+                            {state === "success" ? "Close" : "Cancel"}
+                        </button>
+                        {state !== "success" && (
+                            <button
+                                onClick={handleWithdraw}
+                                disabled={!canSubmit || state === "confirming" || state === "submitting"}
+                                className="flex-1 rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {state === "confirming" && (
+                                    <span className="inline-flex items-center gap-2">
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        Awaiting Signature
+                                    </span>
+                                )}
+                                {state === "submitting" && (
+                                    <span className="inline-flex items-center gap-2">
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        Submitting
+                                    </span>
+                                )}
+                                {(state === "input" || state === "error") &&
+                                    (showLargeWarning ? "Yes, confirm withdrawal" : "Confirm Withdrawal")}
+                            </button>
+                        )}
                     </div>
                 </div>
             )}
