@@ -21,18 +21,15 @@ const navLinks = [
 const PROD_DAPP_URL = "https://nesterdapp.netlify.app"
 const LOCAL_DAPP_URL = "http://localhost:3001"
 
-function useDappUrl() {
-    const [url, setUrl] = React.useState(PROD_DAPP_URL)
-    React.useEffect(() => {
-        const host = window.location.hostname
-        setUrl(host === "localhost" || host === "127.0.0.1" ? LOCAL_DAPP_URL : PROD_DAPP_URL)
-    }, [])
-    return url
+function openDapp(e: React.MouseEvent) {
+    e.preventDefault()
+    const host = window.location.hostname
+    const url = host === "localhost" || host === "127.0.0.1" ? LOCAL_DAPP_URL : PROD_DAPP_URL
+    window.open(url, "_blank", "noopener,noreferrer")
 }
 
 export function Navbar() {
     const [isScrolled, setIsScrolled] = React.useState(false)
-    const dappUrl = useDappUrl()
 
     React.useEffect(() => {
         const handleScroll = () => {
@@ -68,13 +65,13 @@ export function Navbar() {
                             </Link>
                         ))}
                     </div>
-                    <Link href={dappUrl} target="_blank">
+                    <a href={PROD_DAPP_URL} onClick={openDapp}>
                         <Button
                             className="bg-[#0D0E1C] hover:bg-[#0D0E1C]/90 text-white rounded-full px-6 font-medium text-sm transition-all shadow-none"
                         >
                             Nester for Web
                         </Button>
-                    </Link>
+                    </a>
                 </div>
 
                 <Sheet>
@@ -100,11 +97,11 @@ export function Navbar() {
                                 ))}
                             </div>
                             <div className="mt-auto mb-8">
-                                <Link href={dappUrl} target="_blank" className="w-full">
+                                <a href={PROD_DAPP_URL} onClick={openDapp} className="w-full">
                                     <Button className="w-full bg-[#0D0E1C] hover:bg-[#0D0E1C]/90 text-white rounded-full">
                                         Nester for Web
                                     </Button>
-                                </Link>
+                                </a>
                             </div>
                         </div>
                     </SheetContent>
