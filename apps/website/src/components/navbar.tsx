@@ -21,15 +21,14 @@ const navLinks = [
 const PROD_DAPP_URL = "https://nesterdapp.netlify.app"
 const LOCAL_DAPP_URL = "http://localhost:3001"
 
-function openDapp(e: React.MouseEvent) {
-    e.preventDefault()
-    const host = window.location.hostname
-    const url = host === "localhost" || host === "127.0.0.1" ? LOCAL_DAPP_URL : PROD_DAPP_URL
-    window.open(url, "_blank", "noopener,noreferrer")
-}
-
 export function Navbar() {
     const [isScrolled, setIsScrolled] = React.useState(false)
+    const [dappUrl, setDappUrl] = React.useState(PROD_DAPP_URL)
+
+    React.useEffect(() => {
+        const host = window.location.hostname
+        setDappUrl(host === "localhost" || host === "127.0.0.1" ? LOCAL_DAPP_URL : PROD_DAPP_URL)
+    }, [])
 
     React.useEffect(() => {
         const handleScroll = () => {
@@ -65,7 +64,7 @@ export function Navbar() {
                             </Link>
                         ))}
                     </div>
-                    <a href={PROD_DAPP_URL} onClick={openDapp}>
+                    <a href={dappUrl} target="_blank" rel="noopener noreferrer">
                         <Button
                             className="bg-[#0D0E1C] hover:bg-[#0D0E1C]/90 text-white rounded-full px-6 font-medium text-sm transition-all shadow-none"
                         >
@@ -97,7 +96,7 @@ export function Navbar() {
                                 ))}
                             </div>
                             <div className="mt-auto mb-8">
-                                <a href={PROD_DAPP_URL} onClick={openDapp} className="w-full">
+                                <a href={dappUrl} target="_blank" rel="noopener noreferrer" className="w-full">
                                     <Button className="w-full bg-[#0D0E1C] hover:bg-[#0D0E1C]/90 text-white rounded-full">
                                         Nester for Web
                                     </Button>
