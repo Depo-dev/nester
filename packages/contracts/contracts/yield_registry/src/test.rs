@@ -17,7 +17,7 @@ use crate::{
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn setup(env: &Env) -> (YieldRegistryContractClient, Address) {
+fn setup(env: &Env) -> (YieldRegistryContractClient<'_>, Address) {
     env.mock_all_auths();
     let admin = Address::generate(env);
     let contract_id = env.register_contract(None, YieldRegistryContract);

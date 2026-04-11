@@ -1,8 +1,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, panic_with_error, symbol_short, vec, Address, Env,
-    Error, IntoVal, Symbol, Val, Vec,
+    contract, contractimpl, contracttype, panic_with_error, symbol_short, Address, Env, Error,
+    IntoVal, Symbol, Val, Vec,
 };
 
 use nester_access_control::{AccessControl, Role};

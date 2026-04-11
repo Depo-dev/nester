@@ -13,7 +13,7 @@ use crate::{VaultTokenContract, VaultTokenContractClient};
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn setup(env: &Env) -> (VaultTokenContractClient, Address, Address) {
+fn setup(env: &Env) -> (VaultTokenContractClient<'_>, Address, Address) {
     env.mock_all_auths();
     let vault = Address::generate(env);
     let token_id = env.register_contract(None, VaultTokenContract);
