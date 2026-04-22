@@ -104,6 +104,27 @@ func scanUser(row userScanner) (*user.User, error) {
 	}, nil
 }
 
+func (r *UserRepository) GetRoles(ctx context.Context, id uuid.UUID) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT role FROM user_roles WHERE user_id = $1 ORDER BY role`,
+		id.String(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roles []string
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return nil, err
+		}
+		roles = append(roles, role)
+	}
+	return roles, rows.Err()
+}
+
 func mapUserError(err error) error {
 	if err == nil {
 		return nil

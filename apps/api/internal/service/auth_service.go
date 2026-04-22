@@ -109,11 +109,17 @@ func (s *authService) VerifyAndIssue(ctx context.Context, walletAddress, signatu
 		}
 	}
 
+	roles, err := s.userService.GetUserRoles(ctx, user.ID)
+	if err != nil {
+		return "", err
+	}
+
 	claims := auth.Claims{
 		Subject:       user.ID.String(),
 		WalletAddress: walletAddress,
 		IssuedAt:      time.Now().Unix(),
 		ExpiresAt:     time.Now().Add(s.config.TokenExpiry()).Unix(),
+		Roles:         roles,
 	}
 
 	token, err := auth.MakeJWT(claims, s.config.Secret())

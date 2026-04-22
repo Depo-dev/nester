@@ -35,4 +35,5 @@ type UserRepository interface {
 	Create(ctx context.Context, user *User) error
 	GetByID(ctx context.Context, id uuid.UUID) (*User, error)
 	GetByWalletAddress(ctx context.Context, addr string) (*User, error)
+	GetRoles(ctx context.Context, id uuid.UUID) ([]string, error)
 }
