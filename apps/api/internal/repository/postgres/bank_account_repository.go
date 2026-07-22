@@ -26,7 +26,7 @@ func (r *BankAccountRepository) Create(
 	ctx context.Context,
 	account bankaccount.BankAccount,
 	encryptedNumber []byte,
-	fingerprint string,
+	fingerprint, keyVersion string,
 ) (bankaccount.BankAccount, error) {
 	last4 := account.AccountNumber
 	if len(last4) > 4 {
@@ -37,8 +37,8 @@ func (r *BankAccountRepository) Create(
 		INSERT INTO bank_accounts (
 			id, user_id, bank_name, bank_code,
 			account_number_encrypted, account_number_fingerprint, account_last4,
-			account_name, currency, country, is_default, verified_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			account_name, currency, country, is_default, verified_at, key_version
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		RETURNING created_at
 	`
 
@@ -57,6 +57,7 @@ func (r *BankAccountRepository) Create(
 		strings.ToUpper(account.Country),
 		account.IsDefault,
 		account.VerifiedAt,
+		keyVersion,
 	).Scan(&account.CreatedAt)
 	if err != nil {
 		return bankaccount.BankAccount{}, mapBankAccountError(err)
