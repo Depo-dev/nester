@@ -58,7 +58,7 @@ func (s *BankAccountService) Add(ctx context.Context, userID uuid.UUID, input ba
 		}
 	}
 
-	encrypted, err := s.cipher.Encrypt(normalized.AccountNumber)
+	envelope, err := s.cipher.Encrypt(normalized.AccountNumber)
 	if err != nil {
 		return bankaccount.PublicView{}, err
 	}
@@ -83,7 +83,7 @@ func (s *BankAccountService) Add(ctx context.Context, userID uuid.UUID, input ba
 		}
 	}
 
-	created, err := s.repo.Create(ctx, model, encrypted, fingerprint)
+	created, err := s.repo.Create(ctx, model, envelope.Ciphertext, fingerprint, envelope.KeyVersion)
 	if err != nil {
 		return bankaccount.PublicView{}, err
 	}
