@@ -36,8 +36,44 @@ type Config struct {
 	startup               StartupConfig
 	bank                  BankConfig
 	bankAccountCipherKey  string
+	accountCipher         AccountCipherConfig
 	transactionPoller     TransactionPollerConfig
 	recurringDeposit      RecurringDepositConfig
+}
+
+// AccountCipherConfig holds the versioned key set used to encrypt sensitive
+// account numbers at rest. It supports non-destructive rotation: one active key
+// seals new writes while every configured version remains available to decrypt
+// historical rows.
+type AccountCipherConfig struct {
+	activeVersion  string
+	keys           map[string]string
+	fingerprintKey string
+}
+
+// Configured reports whether at least one encryption key is available.
+func (a AccountCipherConfig) Configured() bool {
+	return len(a.keys) > 0
+}
+
+// ActiveVersion is the key version used for new encryptions.
+func (a AccountCipherConfig) ActiveVersion() string {
+	return a.activeVersion
+}
+
+// Keys returns a copy of the version -> base64 key map.
+func (a AccountCipherConfig) Keys() map[string]string {
+	out := make(map[string]string, len(a.keys))
+	for k, v := range a.keys {
+		out[k] = v
+	}
+	return out
+}
+
+// FingerprintKey is the optional stable pepper (base64) for uniqueness
+// fingerprints. An empty value lets the cipher default to the legacy key.
+func (a AccountCipherConfig) FingerprintKey() string {
+	return a.fingerprintKey
 }
 
 // TransactionPollerConfig governs the background loop that reconciles pending
@@ -391,6 +427,11 @@ func (c Config) Bank() BankConfig {
 
 func (c Config) BankAccountEncryptionKey() string {
 	return c.bankAccountCipherKey
+}
+
+// AccountCipher returns the versioned key set used to encrypt account numbers.
+func (c Config) AccountCipher() AccountCipherConfig {
+	return c.accountCipher
 }
 
 func (c Config) TransactionPoller() TransactionPollerConfig {
