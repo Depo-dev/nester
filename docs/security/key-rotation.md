@@ -51,12 +51,14 @@ detection would break. Rotation therefore **never** recomputes fingerprints.
 When `ACCOUNT_CIPHER_FINGERPRINT_KEY` is empty the pepper defaults to the `v1`
 key. That default is only available **while a `v1` key is configured** — a key
 set that has no `v1` (e.g. after `v1` is dropped, or a set that starts at `v2`)
-**must** set `ACCOUNT_CIPHER_FINGERPRINT_KEY` explicitly, or startup fails with
-`ErrFingerprintKeyRequired`. This is deliberate: without a pinned pepper the
-fingerprint key would fall back to the active key and shift on every rotation
-(e.g. `v2`→`v3`), silently breaking blind-index uniqueness. Treat the fingerprint
-key as long-lived and rotate it only with a dedicated, fingerprint-recomputing
-migration (out of scope here).
+**must** set `ACCOUNT_CIPHER_FINGERPRINT_KEY` explicitly. There is **no** fallback
+to the active key; a v1-less set without an explicit pepper is rejected — config
+loading fails at startup (`config.Load`), and, as a defense-in-depth safety net
+for any direct constructor caller, the cipher independently returns
+`ErrFingerprintKeyRequired`. This is deliberate: a pepper derived from the active
+key would shift on every rotation (e.g. `v2`→`v3`) and silently break blind-index
+uniqueness. Treat the fingerprint key as long-lived and rotate it only with a
+dedicated, fingerprint-recomputing migration (out of scope here).
 
 ## Configuration (ENV)
 
