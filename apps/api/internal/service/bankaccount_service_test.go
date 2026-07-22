@@ -206,52 +206,61 @@ func multiCipher(t *testing.T, active string) *crypto.AccountCipher {
 	return c
 }
 
-// New writes must be sealed with the active key version.
-func TestBankAccountService_NewWritesUseActiveKey(t *testing.T) {
-	ctx := context.Background()
-	userID := uuid.New()
-	repo := newMemBankAccountRepo()
-	svc := service.NewBankAccountService(repo, multiCipher(t, "v2"), nil)
+// TestBankAccountService_KeyVersioning covers, per scenario: the key version a
+// new write is stored under, and that the row is still decryptable through the
+// (possibly rotated) cipher the reader is configured with.
+func TestBankAccountService_KeyVersioning(t *testing.T) {
+	const accountNumber = "0123456789"
 
-	created, err := svc.Add(ctx, userID, bankaccount.AddInput{
-		BankName: "GTBank", BankCode: "058", AccountNumber: "0123456789",
-		AccountName: "A", Currency: "NGN", Country: "NG",
-	})
-	if err != nil {
-		t.Fatalf("add: %v", err)
-	}
-	if got := repo.byID[created.ID].keyVersion; got != "v2" {
-		t.Fatalf("stored key version = %q, want active v2", got)
-	}
-}
-
-// A row written under v1 must still decrypt after v2 is introduced and made
-// active — the cross-version guarantee at the service boundary.
-func TestBankAccountService_LegacyRowDecryptsAfterKeyAdded(t *testing.T) {
-	ctx := context.Background()
-	userID := uuid.New()
-	repo := newMemBankAccountRepo()
-
-	// Write with the single-key (v1) cipher.
-	legacySvc := service.NewBankAccountService(repo, testCipher(t), nil)
-	created, err := legacySvc.Add(ctx, userID, bankaccount.AddInput{
-		BankName: "GTBank", BankCode: "058", AccountNumber: "0123456789",
-		AccountName: "A", Currency: "NGN", Country: "NG",
-	})
-	if err != nil {
-		t.Fatalf("add: %v", err)
-	}
-	if got := repo.byID[created.ID].keyVersion; got != "v1" {
-		t.Fatalf("stored key version = %q, want v1", got)
+	cases := []struct {
+		name        string
+		writeCipher func(*testing.T) *crypto.AccountCipher
+		readCipher  func(*testing.T) *crypto.AccountCipher // nil = reuse writeCipher
+		wantStored  string
+	}{
+		{
+			name:        "new writes use active key",
+			writeCipher: func(t *testing.T) *crypto.AccountCipher { return multiCipher(t, "v2") },
+			wantStored:  "v2",
+		},
+		{
+			name:        "legacy v1 row decrypts after v2 added and made active",
+			writeCipher: func(t *testing.T) *crypto.AccountCipher { return testCipher(t) },
+			readCipher:  func(t *testing.T) *crypto.AccountCipher { return multiCipher(t, "v2") },
+			wantStored:  "v1",
+		},
 	}
 
-	// Swap to the multi-key cipher (v2 active, v1 retained) and read back.
-	rotatedSvc := service.NewBankAccountService(repo, multiCipher(t, "v2"), nil)
-	account, err := rotatedSvc.ResolveForSettlement(ctx, userID, created.ID)
-	if err != nil {
-		t.Fatalf("resolve after key add: %v", err)
-	}
-	if account.AccountNumber != "0123456789" {
-		t.Fatalf("decrypted account = %q, want 0123456789", account.AccountNumber)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			userID := uuid.New()
+			repo := newMemBankAccountRepo()
+
+			created, err := service.NewBankAccountService(repo, tc.writeCipher(t), nil).
+				Add(ctx, userID, bankaccount.AddInput{
+					BankName: "GTBank", BankCode: "058", AccountNumber: accountNumber,
+					AccountName: "A", Currency: "NGN", Country: "NG",
+				})
+			if err != nil {
+				t.Fatalf("add: %v", err)
+			}
+			if got := repo.byID[created.ID].keyVersion; got != tc.wantStored {
+				t.Fatalf("stored key version = %q, want %q", got, tc.wantStored)
+			}
+
+			readCipher := tc.writeCipher
+			if tc.readCipher != nil {
+				readCipher = tc.readCipher
+			}
+			account, err := service.NewBankAccountService(repo, readCipher(t), nil).
+				ResolveForSettlement(ctx, userID, created.ID)
+			if err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			if account.AccountNumber != accountNumber {
+				t.Fatalf("decrypted account = %q, want %q", account.AccountNumber, accountNumber)
+			}
+		})
 	}
 }
