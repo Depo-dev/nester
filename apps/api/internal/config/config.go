@@ -291,6 +291,7 @@ func Load() (*Config, error) {
 		cfg.bankAccountCipherKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 	}
 
+	cfg.accountCipher = loader.accountCipherConfig(cfg.bankAccountCipherKey)
 
 	cfg.validate(&loader)
 
@@ -879,6 +880,63 @@ func (l *envLoader) durationDefault(key string, fallback time.Duration) time.Dur
 		return fallback
 	}
 	return value
+}
+
+// accountCipherConfig parses the versioned encryption key set.
+//
+// When ACCOUNT_CIPHER_KEYS is set it takes precedence and must be a comma-
+// separated list of "version:base64key" pairs, with ACCOUNT_CIPHER_ACTIVE_KEY
+// naming one of those versions. Otherwise it falls back to the single legacy
+// BANK_ACCOUNT_ENCRYPTION_KEY registered as version "v1" (matching the
+// key_version column default), preserving existing single-key deployments.
+func (l *envLoader) accountCipherConfig(legacyKey string) AccountCipherConfig {
+	fingerprintKey := l.stringDefault("ACCOUNT_CIPHER_FINGERPRINT_KEY", "")
+	active := l.stringDefault("ACCOUNT_CIPHER_ACTIVE_KEY", "")
+
+	keysRaw, hasKeys := l.lookup("ACCOUNT_CIPHER_KEYS")
+	if hasKeys {
+		keys := make(map[string]string)
+		for _, pair := range strings.Split(keysRaw, ",") {
+			pair = strings.TrimSpace(pair)
+			if pair == "" {
+				continue
+			}
+			version, keyB64, ok := strings.Cut(pair, ":")
+			version = strings.TrimSpace(version)
+			keyB64 = strings.TrimSpace(keyB64)
+			if !ok || version == "" || keyB64 == "" {
+				l.addError(`ACCOUNT_CIPHER_KEYS entries must be "version:base64key"`)
+				continue
+			}
+			if _, dup := keys[version]; dup {
+				l.addError(fmt.Sprintf("ACCOUNT_CIPHER_KEYS has duplicate version %q", version))
+				continue
+			}
+			keys[version] = keyB64
+		}
+
+		if active == "" {
+			l.addError("ACCOUNT_CIPHER_ACTIVE_KEY is required when ACCOUNT_CIPHER_KEYS is set")
+		} else if _, ok := keys[active]; !ok && len(keys) > 0 {
+			l.addError("ACCOUNT_CIPHER_ACTIVE_KEY must match a version listed in ACCOUNT_CIPHER_KEYS")
+		}
+
+		return AccountCipherConfig{activeVersion: active, keys: keys, fingerprintKey: fingerprintKey}
+	}
+
+	// Backward compatibility: fall back to the single legacy key as version "v1".
+	if strings.TrimSpace(legacyKey) != "" {
+		return AccountCipherConfig{
+			activeVersion:  "v1",
+			keys:           map[string]string{"v1": legacyKey},
+			fingerprintKey: fingerprintKey,
+		}
+	}
+
+	if active != "" || fingerprintKey != "" {
+		l.addError("ACCOUNT_CIPHER_ACTIVE_KEY/ACCOUNT_CIPHER_FINGERPRINT_KEY set but no keys are configured (set ACCOUNT_CIPHER_KEYS or BANK_ACCOUNT_ENCRYPTION_KEY)")
+	}
+	return AccountCipherConfig{}
 }
 
 func (l *envLoader) lookup(key string) (string, bool) {
