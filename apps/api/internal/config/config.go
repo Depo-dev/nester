@@ -17,6 +17,10 @@ import (
 // enough to pass the length check, so it is rejected explicitly outside development.
 const defaultDevJWTSecret = "dev-nester-jwt-secret-change-in-production"
 
+// maxKeyVersionLen bounds an account cipher key version label so it fits the
+// bank_accounts.key_version VARCHAR(32) column.
+const maxKeyVersionLen = 32
+
 type Config struct {
 	environment           string
 	server                ServerConfig
@@ -908,6 +912,12 @@ func (l *envLoader) accountCipherConfig(legacyKey string) AccountCipherConfig {
 				l.addError(`ACCOUNT_CIPHER_KEYS entries must be "version:base64key"`)
 				continue
 			}
+			// key_version is persisted as VARCHAR(32); reject anything that would
+			// pass startup only to fail at the database boundary on write/rotation.
+			if len(version) > maxKeyVersionLen {
+				l.addError(fmt.Sprintf("ACCOUNT_CIPHER_KEYS version %q exceeds %d characters", version, maxKeyVersionLen))
+				continue
+			}
 			if _, dup := keys[version]; dup {
 				l.addError(fmt.Sprintf("ACCOUNT_CIPHER_KEYS has duplicate version %q", version))
 				continue
@@ -915,10 +925,23 @@ func (l *envLoader) accountCipherConfig(legacyKey string) AccountCipherConfig {
 			keys[version] = keyB64
 		}
 
+		// A non-empty setting that parses to zero usable entries (e.g. "," or
+		// ": ") must fail closed rather than silently disabling encryption.
+		if len(keys) == 0 {
+			l.addError("ACCOUNT_CIPHER_KEYS must contain at least one valid version:base64key entry")
+		}
 		if active == "" {
 			l.addError("ACCOUNT_CIPHER_ACTIVE_KEY is required when ACCOUNT_CIPHER_KEYS is set")
 		} else if _, ok := keys[active]; !ok && len(keys) > 0 {
 			l.addError("ACCOUNT_CIPHER_ACTIVE_KEY must match a version listed in ACCOUNT_CIPHER_KEYS")
+		}
+		// Without a v1 key, an empty fingerprint pepper would track the active key
+		// and shift the blind index on every rotation, permitting duplicate
+		// accounts. Require an explicit, rotation-independent pepper in that case.
+		if len(keys) > 0 && fingerprintKey == "" {
+			if _, hasV1 := keys["v1"]; !hasV1 {
+				l.addError("ACCOUNT_CIPHER_FINGERPRINT_KEY is required when ACCOUNT_CIPHER_KEYS has no v1 key")
+			}
 		}
 
 		return AccountCipherConfig{activeVersion: active, keys: keys, fingerprintKey: fingerprintKey}

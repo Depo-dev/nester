@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 )
 
@@ -98,5 +99,54 @@ func TestAccountCipher_MalformedPairFails(t *testing.T) {
 	})
 	if _, err := Load(); err == nil {
 		t.Fatal("expected error for malformed ACCOUNT_CIPHER_KEYS entry")
+	}
+}
+
+func TestAccountCipher_EmptyKeysetFails(t *testing.T) {
+	// A non-empty setting that parses to zero entries must fail closed, not
+	// silently disable encryption.
+	cipherEnv(t, map[string]string{
+		"ACCOUNT_CIPHER_KEYS":       ",",
+		"ACCOUNT_CIPHER_ACTIVE_KEY": "v1",
+	})
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error when ACCOUNT_CIPHER_KEYS yields no usable entries")
+	}
+}
+
+func TestAccountCipher_VersionTooLongFails(t *testing.T) {
+	long := "v" + strings.Repeat("9", 40) // > 32 chars
+	cipherEnv(t, map[string]string{
+		"ACCOUNT_CIPHER_KEYS":       long + ":" + b64key(1),
+		"ACCOUNT_CIPHER_ACTIVE_KEY": long,
+	})
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for key version exceeding 32 characters")
+	}
+}
+
+func TestAccountCipher_NoV1RequiresFingerprintKey(t *testing.T) {
+	// A key set without v1 and without an explicit pepper must be rejected.
+	cipherEnv(t, map[string]string{
+		"ACCOUNT_CIPHER_KEYS":       "v2:" + b64key(2) + ",v3:" + b64key(3),
+		"ACCOUNT_CIPHER_ACTIVE_KEY": "v2",
+	})
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error when a v1-less key set omits ACCOUNT_CIPHER_FINGERPRINT_KEY")
+	}
+}
+
+func TestAccountCipher_NoV1WithFingerprintKeyOK(t *testing.T) {
+	cipherEnv(t, map[string]string{
+		"ACCOUNT_CIPHER_KEYS":            "v2:" + b64key(2) + ",v3:" + b64key(3),
+		"ACCOUNT_CIPHER_ACTIVE_KEY":      "v2",
+		"ACCOUNT_CIPHER_FINGERPRINT_KEY": b64key(9),
+	})
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.AccountCipher().FingerprintKey() != b64key(9) {
+		t.Fatal("expected explicit fingerprint key to be carried through")
 	}
 }
