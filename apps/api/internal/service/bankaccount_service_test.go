@@ -18,23 +18,24 @@ type memBankAccountRepo struct {
 }
 
 type storedAccount struct {
-	account   bankaccount.BankAccount
-	encrypted []byte
-	print     string
+	account    bankaccount.BankAccount
+	encrypted  []byte
+	print      string
+	keyVersion string
 }
 
 func newMemBankAccountRepo() *memBankAccountRepo {
 	return &memBankAccountRepo{byID: make(map[uuid.UUID]storedAccount)}
 }
 
-func (m *memBankAccountRepo) Create(_ context.Context, account bankaccount.BankAccount, encrypted []byte, fingerprint string) (bankaccount.BankAccount, error) {
+func (m *memBankAccountRepo) Create(_ context.Context, account bankaccount.BankAccount, encrypted []byte, fingerprint, keyVersion string) (bankaccount.BankAccount, error) {
 	for _, s := range m.byID {
 		if s.account.UserID == account.UserID && s.print == fingerprint {
 			return bankaccount.BankAccount{}, bankaccount.ErrDuplicateAccount
 		}
 	}
 	account.CreatedAt = time.Now().UTC()
-	m.byID[account.ID] = storedAccount{account: account, encrypted: encrypted, print: fingerprint}
+	m.byID[account.ID] = storedAccount{account: account, encrypted: encrypted, print: fingerprint, keyVersion: keyVersion}
 	return account, nil
 }
 
@@ -48,12 +49,12 @@ func (m *memBankAccountRepo) ListByUser(_ context.Context, userID uuid.UUID) ([]
 	return out, nil
 }
 
-func (m *memBankAccountRepo) GetByID(_ context.Context, id uuid.UUID) (bankaccount.BankAccount, []byte, error) {
+func (m *memBankAccountRepo) GetByID(_ context.Context, id uuid.UUID) (bankaccount.BankAccount, []byte, string, error) {
 	s, ok := m.byID[id]
 	if !ok {
-		return bankaccount.BankAccount{}, nil, bankaccount.ErrNotFound
+		return bankaccount.BankAccount{}, nil, "", bankaccount.ErrNotFound
 	}
-	return s.account, s.encrypted, nil
+	return s.account, s.encrypted, s.keyVersion, nil
 }
 
 func (m *memBankAccountRepo) Delete(_ context.Context, id uuid.UUID) error {
