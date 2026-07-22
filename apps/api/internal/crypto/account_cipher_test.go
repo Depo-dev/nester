@@ -94,13 +94,40 @@ func TestDecrypt_CrossVersion(t *testing.T) {
 }
 
 func TestDecrypt_UnknownVersionFails(t *testing.T) {
-	c, err := NewAccountCipherWithKeys("v2", map[string]string{"v2": key(2)}, "")
+	// v2-only key set has no v1, so an explicit fingerprint pepper is required.
+	c, err := NewAccountCipherWithKeys("v2", map[string]string{"v2": key(2)}, key(9))
 	if err != nil {
 		t.Fatalf("cipher: %v", err)
 	}
 	_, err = c.Decrypt(CipherEnvelope{KeyVersion: "v1", Ciphertext: []byte("whatever-bytes-here-not-real")})
 	if !errors.Is(err, ErrUnknownKeyVersion) {
 		t.Fatalf("want ErrUnknownKeyVersion, got %v", err)
+	}
+}
+
+func TestNewAccountCipherWithKeys_RequiresPepperWithoutV1(t *testing.T) {
+	// No v1 and no explicit pepper must fail closed rather than defaulting the
+	// fingerprint key to the (rotatable) active key.
+	if _, err := NewAccountCipherWithKeys("v2", map[string]string{"v2": key(2), "v3": key(3)}, ""); !errors.Is(err, ErrFingerprintKeyRequired) {
+		t.Fatalf("want ErrFingerprintKeyRequired, got %v", err)
+	}
+}
+
+func TestFingerprint_StableAcrossActiveKey_NoV1(t *testing.T) {
+	// With an explicit pepper and no v1, rotating the active key from v2 to v3
+	// must not change the fingerprint.
+	keys := map[string]string{"v2": key(2), "v3": key(3)}
+	fpV2, err := NewAccountCipherWithKeys("v2", keys, key(9))
+	if err != nil {
+		t.Fatalf("cipher v2 active: %v", err)
+	}
+	fpV3, err := NewAccountCipherWithKeys("v3", keys, key(9))
+	if err != nil {
+		t.Fatalf("cipher v3 active: %v", err)
+	}
+	const acct = "0123456789|058"
+	if fpV2.Fingerprint(acct) != fpV3.Fingerprint(acct) {
+		t.Fatal("fingerprint changed across active-key rotation without v1")
 	}
 }
 

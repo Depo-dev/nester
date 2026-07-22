@@ -30,6 +30,10 @@ var (
 	ErrActiveKeyMissing   = errors.New("active key version is not present in the key set")
 	ErrUnknownKeyVersion  = errors.New("no key registered for the ciphertext key version")
 	ErrEmptyKeyVersion    = errors.New("key version must not be empty")
+	// ErrFingerprintKeyRequired is returned when no v1 key and no explicit
+	// fingerprint pepper are provided. Defaulting the pepper to the active key
+	// would let it change on every rotation and break blind-index uniqueness.
+	ErrFingerprintKeyRequired = errors.New("a fingerprint key is required when no v1 key is configured")
 )
 
 // CipherEnvelope pairs stored ciphertext with the key version that produced it.
@@ -65,8 +69,9 @@ func NewAccountCipher(keyB64 string) (*AccountCipher, error) {
 //   - keysB64 maps a version label (e.g. "v1", "v2") to a base64-encoded 32-byte key.
 //   - activeVersion selects the key used for new encryptions; it must exist in keysB64.
 //   - fingerprintKeyB64 is the stable pepper for uniqueness fingerprints. When empty
-//     it defaults to the LegacyKeyVersion key if present, otherwise the active key,
-//     which preserves fingerprints written before a rotation.
+//     it defaults to the LegacyKeyVersion (v1) key, preserving fingerprints written
+//     before a rotation. If neither a pepper nor a v1 key is present, construction
+//     fails with ErrFingerprintKeyRequired rather than tracking the active key.
 func NewAccountCipherWithKeys(activeVersion string, keysB64 map[string]string, fingerprintKeyB64 string) (*AccountCipher, error) {
 	activeVersion = strings.TrimSpace(activeVersion)
 	if len(keysB64) == 0 {
@@ -99,7 +104,7 @@ func NewAccountCipherWithKeys(activeVersion string, keysB64 map[string]string, f
 		return nil, ErrActiveKeyMissing
 	}
 
-	fpKey, err := resolveFingerprintKey(fingerprintKeyB64, activeVersion, rawByVersion)
+	fpKey, err := resolveFingerprintKey(fingerprintKeyB64, rawByVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +166,7 @@ func (c *AccountCipher) Fingerprint(normalizedAccount string) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-func resolveFingerprintKey(b64, activeVersion string, rawByVersion map[string][]byte) ([]byte, error) {
+func resolveFingerprintKey(b64 string, rawByVersion map[string][]byte) ([]byte, error) {
 	if strings.TrimSpace(b64) != "" {
 		raw, err := decodeKey(b64)
 		if err != nil {
@@ -172,7 +177,7 @@ func resolveFingerprintKey(b64, activeVersion string, rawByVersion map[string][]
 	if raw, ok := rawByVersion[LegacyKeyVersion]; ok {
 		return raw, nil
 	}
-	return rawByVersion[activeVersion], nil
+	return nil, ErrFingerprintKeyRequired
 }
 
 func decodeKey(b64 string) ([]byte, error) {
