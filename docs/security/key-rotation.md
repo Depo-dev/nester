@@ -48,10 +48,15 @@ key. This is deliberate: if the fingerprint key changed on every rotation, rows
 written before and after a rotation would no longer collide and duplicate
 detection would break. Rotation therefore **never** recomputes fingerprints.
 
-By default the pepper is the `v1` key. Override it with
-`ACCOUNT_CIPHER_FINGERPRINT_KEY` if you intend to eventually drop `v1`. Treat
-the fingerprint key as long-lived and rotate it only with a dedicated,
-fingerprint-recomputing migration (out of scope here).
+When `ACCOUNT_CIPHER_FINGERPRINT_KEY` is empty the pepper defaults to the `v1`
+key. That default is only available **while a `v1` key is configured** — a key
+set that has no `v1` (e.g. after `v1` is dropped, or a set that starts at `v2`)
+**must** set `ACCOUNT_CIPHER_FINGERPRINT_KEY` explicitly, or startup fails with
+`ErrFingerprintKeyRequired`. This is deliberate: without a pinned pepper the
+fingerprint key would fall back to the active key and shift on every rotation
+(e.g. `v2`→`v3`), silently breaking blind-index uniqueness. Treat the fingerprint
+key as long-lived and rotate it only with a dedicated, fingerprint-recomputing
+migration (out of scope here).
 
 ## Configuration (ENV)
 
@@ -65,7 +70,8 @@ ACCOUNT_CIPHER_KEYS=v1:<base64-32B>,v2:<base64-32B>
 # Which version seals new writes. Must be one of the versions above.
 ACCOUNT_CIPHER_ACTIVE_KEY=v2
 
-# Optional. Stable pepper for the uniqueness fingerprint. Defaults to the v1 key.
+# Stable pepper for the uniqueness fingerprint. Defaults to the v1 key when empty;
+# REQUIRED (startup fails otherwise) if the key set has no v1.
 ACCOUNT_CIPHER_FINGERPRINT_KEY=
 ```
 
