@@ -4,9 +4,29 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
+
+// trustedProxyCount is the number of trusted reverse proxies / load balancers in
+// front of the API. It defaults to 0 (trust none: rate limits key off the direct
+// connection address) and is set once at startup via ConfigureClientIP. When
+// greater than 0, clientIP derives the originating client address from the
+// X-Forwarded-For chain, counting hops from the right so spoofed left-most
+// entries cannot forge a client IP past the trusted-proxy boundary.
+var trustedProxyCount int
+
+// ConfigureClientIP sets how many trusted proxies sit in front of the API for
+// the purpose of client-IP extraction in rate limiting. It must be called once
+// during startup, before the server begins serving. A negative count is treated
+// as 0. See trustedProxyCount.
+func ConfigureClientIP(count int) {
+	if count < 0 {
+		count = 0
+	}
+	trustedProxyCount = count
+}
 
 // bucket is a token-bucket entry for a single rate-limit key.
 type bucket struct {
@@ -65,14 +85,37 @@ func (l *limiter) allow(key string) (bool, time.Duration) {
 	return false, wait
 }
 
-// clientIP extracts the client IP from r.RemoteAddr, stripping the port. When
-// RemoteAddr carries no port it is returned unchanged.
+// clientIP returns the address used to key rate limits for r.
+//
+// With no trusted proxies configured (the default), it is the direct connection
+// address from r.RemoteAddr (port stripped). When trustedProxyCount > 0, the API
+// is assumed to sit behind that many trusted proxies, and the originating client
+// address is taken from the X-Forwarded-For chain: the direct peer is appended as
+// the right-most hop and the entry trustedProxyCount positions further left is
+// returned. Counting from the right means a client cannot spoof its way past the
+// trusted-proxy boundary by injecting extra left-most X-Forwarded-For entries.
 func clientIP(r *http.Request) string {
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
-	return ip
+	if trustedProxyCount <= 0 {
+		return host
+	}
+
+	// chain is client...proxies (left to right), with the direct peer last.
+	chain := make([]string, 0, trustedProxyCount+1)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		for _, p := range strings.Split(xff, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				chain = append(chain, p)
+			}
+		}
+	}
+	chain = append(chain, host)
+
+	idx := max(len(chain)-1-trustedProxyCount, 0)
+	return chain[idx]
 }
 
 // writeRateLimited writes the shared 429 response: a Retry-After header (in

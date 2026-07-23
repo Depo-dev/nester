@@ -23,6 +23,7 @@ func baseEnv(t *testing.T) {
 		"RATELIMIT_GLOBAL_LIMIT", "RATELIMIT_GLOBAL_WINDOW", "RATELIMIT_WRITE_LIMIT", "RATELIMIT_WRITE_WINDOW",
 		"RATELIMIT_WALLET_LIMIT", "RATELIMIT_WALLET_WINDOW",
 		"RATELIMIT_AUTH_LIMIT", "RATELIMIT_AUTH_WINDOW", "RATELIMIT_SETTLEMENT_LIMIT", "RATELIMIT_SETTLEMENT_WINDOW",
+		"RATELIMIT_TRUSTED_PROXY_COUNT",
 		"LOG_LEVEL", "LOG_FORMAT",
 		"ALLOWED_ORIGINS",
 		"RUN_MIGRATIONS", "MIGRATIONS_DIR", "STARTUP_DEPENDENCY_TIMEOUT",
@@ -451,6 +452,7 @@ func TestLoadAllDefaults(t *testing.T) {
 		{"ratelimit auth window", cfg.RateLimit().AuthWindow(), 1 * time.Minute},
 		{"ratelimit settlement limit", cfg.RateLimit().SettlementLimit(), 5},
 		{"ratelimit settlement window", cfg.RateLimit().SettlementWindow(), 1 * time.Minute},
+		{"ratelimit trusted proxy count", cfg.RateLimit().TrustedProxyCount(), 0},
 	}
 
 	for _, tc := range cases {
@@ -860,6 +862,42 @@ func TestLoadSensitiveRateLimitOverrides(t *testing.T) {
 	}
 	if got := cfg.RateLimit().SettlementWindow(); got != 45*time.Second {
 		t.Errorf("SettlementWindow() = %s, want 45s", got)
+	}
+}
+
+// TestLoadTrustedProxyCountOverride verifies RATELIMIT_TRUSTED_PROXY_COUNT is
+// honoured and that a negative value is rejected.
+func TestLoadTrustedProxyCountOverride(t *testing.T) {
+	baseEnv(t)
+	requiredEnv(t)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("RATELIMIT_TRUSTED_PROXY_COUNT", "2")
+
+	chdir(t, t.TempDir())
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.RateLimit().TrustedProxyCount(); got != 2 {
+		t.Errorf("TrustedProxyCount() = %d, want 2", got)
+	}
+}
+
+func TestLoadTrustedProxyCountRejectsNegative(t *testing.T) {
+	baseEnv(t)
+	requiredEnv(t)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("RATELIMIT_TRUSTED_PROXY_COUNT", "-1")
+
+	chdir(t, t.TempDir())
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load() to fail for RATELIMIT_TRUSTED_PROXY_COUNT=-1")
+	}
+	if !strings.Contains(err.Error(), "RATELIMIT_TRUSTED_PROXY_COUNT must be zero or greater") {
+		t.Fatalf("unexpected error: %q", err.Error())
 	}
 }
 

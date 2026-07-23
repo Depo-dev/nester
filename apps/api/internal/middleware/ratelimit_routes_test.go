@@ -200,6 +200,68 @@ func TestSensitiveUserRouteLimiterPerUser(t *testing.T) {
 	}
 }
 
+// --- Proxy-aware client IP keying ---
+
+func TestClientIPUsesForwardedForBehindTrustedProxies(t *testing.T) {
+	ConfigureClientIP(1)
+	t.Cleanup(func() { ConfigureClientIP(0) })
+
+	const limit = 1
+	l := NewLimiter(nil, "global", limit, time.Second)
+	handler := GlobalRateLimiter(l, nil)(ok200)
+
+	// One trusted proxy: the real client is the right-most X-Forwarded-For entry.
+	// The proxy connects from a single RemoteAddr, but two different clients
+	// behind it must get independent buckets.
+	send := func(client string) int {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/x", nil)
+		req.RemoteAddr = "10.0.0.254:5555" // the proxy's address, shared
+		req.Header.Set("X-Forwarded-For", client)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if got := send("203.0.113.1"); got != http.StatusOK {
+		t.Fatalf("client A first: got %d, want 200", got)
+	}
+	if got := send("203.0.113.1"); got != http.StatusTooManyRequests {
+		t.Fatalf("client A second: got %d, want 429", got)
+	}
+	// A different client behind the same proxy must not be throttled.
+	if got := send("203.0.113.2"); got != http.StatusOK {
+		t.Fatalf("client B first: got %d, want 200 (keyed by forwarded client IP, not proxy)", got)
+	}
+}
+
+func TestClientIPForwardedForCannotBeSpoofedPastTrustedHops(t *testing.T) {
+	ConfigureClientIP(1)
+	t.Cleanup(func() { ConfigureClientIP(0) })
+
+	const limit = 1
+	l := NewLimiter(nil, "global", limit, time.Second)
+	handler := GlobalRateLimiter(l, nil)(ok200)
+
+	// With one trusted proxy, only the right-most XFF entry (appended by that
+	// proxy) is trusted. A client injecting extra left-most entries cannot rotate
+	// its effective key, so it stays in a single bucket.
+	send := func(xff string) int {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/x", nil)
+		req.RemoteAddr = "10.0.0.254:5555"
+		req.Header.Set("X-Forwarded-For", xff)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if got := send("spoof-1, 203.0.113.9"); got != http.StatusOK {
+		t.Fatalf("first: got %d, want 200", got)
+	}
+	if got := send("spoof-2, 203.0.113.9"); got != http.StatusTooManyRequests {
+		t.Fatalf("second (spoofed left-most entry changed): got %d, want 429 (same trusted client IP)", got)
+	}
+}
+
 // --- NewLimiter without Redis returns a working in-memory fallback ---
 
 func TestNewLimiterFallsBackToMemoryWithoutRedis(t *testing.T) {

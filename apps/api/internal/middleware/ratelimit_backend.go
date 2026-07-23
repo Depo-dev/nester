@@ -2,10 +2,15 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
+
+// redisCallTimeout bounds each Redis round-trip so a degraded (slow) Redis
+// cannot add latency to every request before the limiter fails open.
+const redisCallTimeout = 75 * time.Millisecond
 
 // Limiter decides whether a request identified by an opaque key may proceed.
 // Implementations may be process-local (in-memory token bucket) or distributed
@@ -62,15 +67,24 @@ return {current, ttl}
 func (l *redisLimiter) Allow(ctx context.Context, key string) (bool, time.Duration) {
 	fullKey := "rl:" + l.prefix + ":" + key
 
+	ctx, cancel := context.WithTimeout(ctx, redisCallTimeout)
+	defer cancel()
+
 	res, err := rateLimitScript.Run(ctx, l.rc, []string{fullKey}, l.window.Milliseconds()).Result()
 	if err != nil {
-		// Fail open: a Redis outage must never take down the API by rejecting
-		// legitimate traffic. Requests pass through until Redis recovers.
+		// Fail open: a Redis outage (or a call that exceeds redisCallTimeout)
+		// must never take down the API by rejecting legitimate traffic. Requests
+		// pass through until Redis recovers; the failure is logged so a
+		// persistent outage does not go unnoticed.
+		slog.Default().WarnContext(ctx, "rate limiter: redis error, failing open",
+			"prefix", l.prefix, "error", err)
 		return true, 0
 	}
 
 	vals, ok := res.([]any)
 	if !ok || len(vals) != 2 {
+		slog.Default().WarnContext(ctx, "rate limiter: unexpected redis result, failing open",
+			"prefix", l.prefix)
 		return true, 0
 	}
 	count, _ := vals[0].(int64)

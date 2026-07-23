@@ -537,6 +537,11 @@ func run() error {
 		{PathPrefix: "/api/v1/", Public: false},
 	}
 	authenticator := middleware.Authenticate(cfg.Auth().Secret(), cfg.Auth().ServiceAPIKey(), authRules)
+	// Tell the rate-limit client-IP extractor how many trusted proxies sit in
+	// front of the API so it derives the originating client IP from
+	// X-Forwarded-For instead of collapsing all traffic onto the proxy address.
+	middleware.ConfigureClientIP(cfg.RateLimit().TrustedProxyCount())
+
 	// globalLimiter bounds every request per client IP, but skips liveness /
 	// readiness / metrics endpoints so orchestrators can always reach them. It is
 	// distributed across instances when Redis is configured.
@@ -574,11 +579,16 @@ func run() error {
 
 	server := &http.Server{
 		Addr: cfg.Server().Address(),
+		// cors is outermost of the request-processing middleware (after only
+		// SecurityHeaders/RecoverPanic) so that rate-limit 429 responses from
+		// globalLimiter and authRouteLimiter still carry CORS headers and remain
+		// readable to browser clients. OPTIONS preflights are short-circuited by
+		// cors and never reach the limiters.
 		Handler: middleware.SecurityHeaders(cfg.Environment())(
 			middleware.RecoverPanic(baseLogger)(
-				globalLimiter(
-					authRouteLimiter(
-						cors(
+				cors(
+					globalLimiter(
+						authRouteLimiter(
 							writeLimiter(
 								authenticator(
 									settlementLimiter(

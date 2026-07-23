@@ -158,18 +158,19 @@ type AuthConfig struct {
 }
 
 type RateLimitConfig struct {
-	globalLimit      int
-	globalWindow     time.Duration
-	writeLimit       int
-	writeWindow      time.Duration
-	walletLimit      int
-	walletWindow     time.Duration
-	rebalanceLimit   int
-	rebalanceWindow  time.Duration
-	authLimit        int
-	authWindow       time.Duration
-	settlementLimit  int
-	settlementWindow time.Duration
+	globalLimit       int
+	globalWindow      time.Duration
+	writeLimit        int
+	writeWindow       time.Duration
+	walletLimit       int
+	walletWindow      time.Duration
+	rebalanceLimit    int
+	rebalanceWindow   time.Duration
+	authLimit         int
+	authWindow        time.Duration
+	settlementLimit   int
+	settlementWindow  time.Duration
+	trustedProxyCount int
 }
 
 type LogConfig struct {
@@ -249,18 +250,19 @@ func Load() (*Config, error) {
 			challengeExpiry: loader.durationDefault("AUTH_CHALLENGE_EXPIRY", 5*time.Minute),
 		},
 		rateLimit: RateLimitConfig{
-			globalLimit:      loader.intDefault("RATELIMIT_GLOBAL_LIMIT", 100),
-			globalWindow:     loader.durationDefault("RATELIMIT_GLOBAL_WINDOW", 1*time.Minute),
-			writeLimit:       loader.intDefault("RATELIMIT_WRITE_LIMIT", 20),
-			writeWindow:      loader.durationDefault("RATELIMIT_WRITE_WINDOW", 1*time.Minute),
-			walletLimit:      loader.intDefault("RATELIMIT_WALLET_LIMIT", 60),
-			walletWindow:     loader.durationDefault("RATELIMIT_WALLET_WINDOW", 1*time.Minute),
-			rebalanceLimit:   loader.intDefault("RATELIMIT_REBALANCE_LIMIT", 3),
-			rebalanceWindow:  loader.durationDefault("RATELIMIT_REBALANCE_WINDOW", 1*time.Hour),
-			authLimit:        loader.intDefault("RATELIMIT_AUTH_LIMIT", 10),
-			authWindow:       loader.durationDefault("RATELIMIT_AUTH_WINDOW", 1*time.Minute),
-			settlementLimit:  loader.intDefault("RATELIMIT_SETTLEMENT_LIMIT", 5),
-			settlementWindow: loader.durationDefault("RATELIMIT_SETTLEMENT_WINDOW", 1*time.Minute),
+			globalLimit:       loader.intDefault("RATELIMIT_GLOBAL_LIMIT", 100),
+			globalWindow:      loader.durationDefault("RATELIMIT_GLOBAL_WINDOW", 1*time.Minute),
+			writeLimit:        loader.intDefault("RATELIMIT_WRITE_LIMIT", 20),
+			writeWindow:       loader.durationDefault("RATELIMIT_WRITE_WINDOW", 1*time.Minute),
+			walletLimit:       loader.intDefault("RATELIMIT_WALLET_LIMIT", 60),
+			walletWindow:      loader.durationDefault("RATELIMIT_WALLET_WINDOW", 1*time.Minute),
+			rebalanceLimit:    loader.intDefault("RATELIMIT_REBALANCE_LIMIT", 3),
+			rebalanceWindow:   loader.durationDefault("RATELIMIT_REBALANCE_WINDOW", 1*time.Hour),
+			authLimit:         loader.intDefault("RATELIMIT_AUTH_LIMIT", 10),
+			authWindow:        loader.durationDefault("RATELIMIT_AUTH_WINDOW", 1*time.Minute),
+			settlementLimit:   loader.intDefault("RATELIMIT_SETTLEMENT_LIMIT", 5),
+			settlementWindow:  loader.durationDefault("RATELIMIT_SETTLEMENT_WINDOW", 1*time.Minute),
+			trustedProxyCount: loader.intDefault("RATELIMIT_TRUSTED_PROXY_COUNT", 0),
 		},
 		log: LogConfig{
 			level:  strings.ToLower(loader.stringDefault("LOG_LEVEL", "info")),
@@ -601,6 +603,9 @@ func (c *Config) validate(loader *envLoader) {
 	if c.rateLimit.settlementWindow <= 0 {
 		loader.addError("RATELIMIT_SETTLEMENT_WINDOW must be greater than 0")
 	}
+	if c.rateLimit.trustedProxyCount < 0 {
+		loader.addError("RATELIMIT_TRUSTED_PROXY_COUNT must be zero or greater")
+	}
 
 	if !isOneOf(c.log.level, "debug", "info", "warn", "error") {
 		loader.addError("LOG_LEVEL must be one of debug, info, warn, error")
@@ -832,6 +837,10 @@ func (r RateLimitConfig) SettlementLimit() int {
 
 func (r RateLimitConfig) SettlementWindow() time.Duration {
 	return r.settlementWindow
+}
+
+func (r RateLimitConfig) TrustedProxyCount() int {
+	return r.trustedProxyCount
 }
 
 type envLoader struct {
