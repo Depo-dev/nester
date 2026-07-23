@@ -65,17 +65,31 @@ func (l *limiter) allow(key string) (bool, time.Duration) {
 	return false, wait
 }
 
+// clientIP extracts the client IP from r.RemoteAddr, stripping the port. When
+// RemoteAddr carries no port it is returned unchanged.
+func clientIP(r *http.Request) string {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
+
+// writeRateLimited writes the shared 429 response: a Retry-After header (in
+// whole seconds, minimum 1) and the API's standard JSON error envelope.
+func writeRateLimited(w http.ResponseWriter, wait time.Duration, message string) {
+	retryAfter := max(int(wait.Seconds()), 1)
+	w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	fmt.Fprintf(w, `{"success":false,"error":{"code":"RATE_LIMITED","message":%q}}`, message)
+}
+
 // IPRateLimiter returns middleware that enforces a per-remote-IP rate limit of
 // limit requests per window.
 func IPRateLimiter(limit int, window time.Duration) func(http.Handler) http.Handler {
 	l := newLimiter(limit, window)
-	return rateLimitMiddleware(l, func(r *http.Request) string {
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			return r.RemoteAddr
-		}
-		return ip
-	})
+	return rateLimitMiddleware(l, clientIP)
 }
 
 // WalletRateLimiter returns middleware that enforces a per-wallet rate limit.
@@ -105,21 +119,9 @@ func WriteMethodRateLimiter(limit int, window time.Duration) func(http.Handler) 
 				return
 			}
 
-			ip, _, err := net.SplitHostPort(r.RemoteAddr)
-			if err != nil {
-				ip = r.RemoteAddr
-			}
-
-			allowed, wait := l.allow(ip)
+			allowed, wait := l.allow(clientIP(r))
 			if !allowed {
-				retryAfter := int(wait.Seconds())
-				if retryAfter < 1 {
-					retryAfter = 1
-				}
-				w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusTooManyRequests)
-				fmt.Fprintf(w, `{"success":false,"error":{"code":"RATE_LIMITED","message":"write rate limit exceeded"}}`)
+				writeRateLimited(w, wait, "write rate limit exceeded")
 				return
 			}
 
@@ -139,14 +141,7 @@ func rateLimitMiddleware(l *limiter, keyFn func(*http.Request) string) func(http
 
 			allowed, wait := l.allow(key)
 			if !allowed {
-				retryAfter := int(wait.Seconds())
-				if retryAfter < 1 {
-					retryAfter = 1
-				}
-				w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusTooManyRequests)
-				fmt.Fprintf(w, `{"success":false,"error":{"code":"RATE_LIMITED","message":"rate limit exceeded"}}`)
+				writeRateLimited(w, wait, "rate limit exceeded")
 				return
 			}
 

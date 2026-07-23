@@ -3,8 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"sync"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -22,6 +22,7 @@ func baseEnv(t *testing.T) {
 		"AUTH_JWT_SECRET", "AUTH_TOKEN_EXPIRY", "AUTH_CHALLENGE_EXPIRY",
 		"RATELIMIT_GLOBAL_LIMIT", "RATELIMIT_GLOBAL_WINDOW", "RATELIMIT_WRITE_LIMIT", "RATELIMIT_WRITE_WINDOW",
 		"RATELIMIT_WALLET_LIMIT", "RATELIMIT_WALLET_WINDOW",
+		"RATELIMIT_AUTH_LIMIT", "RATELIMIT_AUTH_WINDOW", "RATELIMIT_SETTLEMENT_LIMIT", "RATELIMIT_SETTLEMENT_WINDOW",
 		"LOG_LEVEL", "LOG_FORMAT",
 		"ALLOWED_ORIGINS",
 		"RUN_MIGRATIONS", "MIGRATIONS_DIR", "STARTUP_DEPENDENCY_TIMEOUT",
@@ -348,10 +349,10 @@ func TestLoadProcessEnvOverridesDotEnvAndFallsBack(t *testing.T) {
 // only a subset of required fields are missing.
 func TestLoadMissingRequiredFieldsPartial(t *testing.T) {
 	cases := []struct {
-		name          string
-		set           func(t *testing.T)
-		wantMissing   []string
-		wantNotInErr  []string
+		name         string
+		set          func(t *testing.T)
+		wantMissing  []string
+		wantNotInErr []string
 	}{
 		{
 			name: "missing database dsn only",
@@ -446,6 +447,10 @@ func TestLoadAllDefaults(t *testing.T) {
 		{"ratelimit write window", cfg.RateLimit().WriteWindow(), 1 * time.Minute},
 		{"ratelimit wallet limit", cfg.RateLimit().WalletLimit(), 60},
 		{"ratelimit wallet window", cfg.RateLimit().WalletWindow(), 1 * time.Minute},
+		{"ratelimit auth limit", cfg.RateLimit().AuthLimit(), 10},
+		{"ratelimit auth window", cfg.RateLimit().AuthWindow(), 1 * time.Minute},
+		{"ratelimit settlement limit", cfg.RateLimit().SettlementLimit(), 5},
+		{"ratelimit settlement window", cfg.RateLimit().SettlementWindow(), 1 * time.Minute},
 	}
 
 	for _, tc := range cases {
@@ -788,6 +793,73 @@ func TestLoadWalletRateLimitOverrides(t *testing.T) {
 	}
 	if got := cfg.RateLimit().WalletWindow(); got != 15*time.Second {
 		t.Errorf("WalletWindow() = %s, want 15s", got)
+	}
+}
+
+// TestLoadSensitiveRateLimitRejectsNonPositiveValues verifies validation of the
+// strict auth and settlement rate-limit knobs.
+func TestLoadSensitiveRateLimitRejectsNonPositiveValues(t *testing.T) {
+	cases := []struct {
+		name string
+		key  string
+		val  string
+		want string
+	}{
+		{"zero auth limit", "RATELIMIT_AUTH_LIMIT", "0", "RATELIMIT_AUTH_LIMIT must be greater than 0"},
+		{"negative auth limit", "RATELIMIT_AUTH_LIMIT", "-1", "RATELIMIT_AUTH_LIMIT must be greater than 0"},
+		{"zero auth window", "RATELIMIT_AUTH_WINDOW", "0s", "RATELIMIT_AUTH_WINDOW must be greater than 0"},
+		{"zero settlement limit", "RATELIMIT_SETTLEMENT_LIMIT", "0", "RATELIMIT_SETTLEMENT_LIMIT must be greater than 0"},
+		{"zero settlement window", "RATELIMIT_SETTLEMENT_WINDOW", "0s", "RATELIMIT_SETTLEMENT_WINDOW must be greater than 0"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			baseEnv(t)
+			requiredEnv(t)
+			t.Setenv("APP_ENV", "development")
+			t.Setenv(tc.key, tc.val)
+
+			chdir(t, t.TempDir())
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected Load() to fail for %s=%s", tc.key, tc.val)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error to contain %q, got %q", tc.want, err.Error())
+			}
+		})
+	}
+}
+
+// TestLoadSensitiveRateLimitOverrides verifies env overrides for the strict auth
+// and settlement rate-limit knobs are honoured.
+func TestLoadSensitiveRateLimitOverrides(t *testing.T) {
+	baseEnv(t)
+	requiredEnv(t)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("RATELIMIT_AUTH_LIMIT", "7")
+	t.Setenv("RATELIMIT_AUTH_WINDOW", "30s")
+	t.Setenv("RATELIMIT_SETTLEMENT_LIMIT", "3")
+	t.Setenv("RATELIMIT_SETTLEMENT_WINDOW", "45s")
+
+	chdir(t, t.TempDir())
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.RateLimit().AuthLimit(); got != 7 {
+		t.Errorf("AuthLimit() = %d, want 7", got)
+	}
+	if got := cfg.RateLimit().AuthWindow(); got != 30*time.Second {
+		t.Errorf("AuthWindow() = %s, want 30s", got)
+	}
+	if got := cfg.RateLimit().SettlementLimit(); got != 3 {
+		t.Errorf("SettlementLimit() = %d, want 3", got)
+	}
+	if got := cfg.RateLimit().SettlementWindow(); got != 45*time.Second {
+		t.Errorf("SettlementWindow() = %s, want 45s", got)
 	}
 }
 

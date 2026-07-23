@@ -118,14 +118,18 @@ type AuthConfig struct {
 }
 
 type RateLimitConfig struct {
-	globalLimit    int
-	globalWindow   time.Duration
-	writeLimit     int
-	writeWindow    time.Duration
-	walletLimit    int
-	walletWindow   time.Duration
-	rebalanceLimit int
-	rebalanceWindow time.Duration
+	globalLimit      int
+	globalWindow     time.Duration
+	writeLimit       int
+	writeWindow      time.Duration
+	walletLimit      int
+	walletWindow     time.Duration
+	rebalanceLimit   int
+	rebalanceWindow  time.Duration
+	authLimit        int
+	authWindow       time.Duration
+	settlementLimit  int
+	settlementWindow time.Duration
 }
 
 type LogConfig struct {
@@ -205,14 +209,18 @@ func Load() (*Config, error) {
 			challengeExpiry: loader.durationDefault("AUTH_CHALLENGE_EXPIRY", 5*time.Minute),
 		},
 		rateLimit: RateLimitConfig{
-			globalLimit:    loader.intDefault("RATELIMIT_GLOBAL_LIMIT", 100),
-			globalWindow:   loader.durationDefault("RATELIMIT_GLOBAL_WINDOW", 1*time.Minute),
-			writeLimit:     loader.intDefault("RATELIMIT_WRITE_LIMIT", 20),
-			writeWindow:    loader.durationDefault("RATELIMIT_WRITE_WINDOW", 1*time.Minute),
-			walletLimit:    loader.intDefault("RATELIMIT_WALLET_LIMIT", 60),
-			walletWindow:   loader.durationDefault("RATELIMIT_WALLET_WINDOW", 1*time.Minute),
-			rebalanceLimit: loader.intDefault("RATELIMIT_REBALANCE_LIMIT", 3),
-			rebalanceWindow: loader.durationDefault("RATELIMIT_REBALANCE_WINDOW", 1*time.Hour),
+			globalLimit:      loader.intDefault("RATELIMIT_GLOBAL_LIMIT", 100),
+			globalWindow:     loader.durationDefault("RATELIMIT_GLOBAL_WINDOW", 1*time.Minute),
+			writeLimit:       loader.intDefault("RATELIMIT_WRITE_LIMIT", 20),
+			writeWindow:      loader.durationDefault("RATELIMIT_WRITE_WINDOW", 1*time.Minute),
+			walletLimit:      loader.intDefault("RATELIMIT_WALLET_LIMIT", 60),
+			walletWindow:     loader.durationDefault("RATELIMIT_WALLET_WINDOW", 1*time.Minute),
+			rebalanceLimit:   loader.intDefault("RATELIMIT_REBALANCE_LIMIT", 3),
+			rebalanceWindow:  loader.durationDefault("RATELIMIT_REBALANCE_WINDOW", 1*time.Hour),
+			authLimit:        loader.intDefault("RATELIMIT_AUTH_LIMIT", 10),
+			authWindow:       loader.durationDefault("RATELIMIT_AUTH_WINDOW", 1*time.Minute),
+			settlementLimit:  loader.intDefault("RATELIMIT_SETTLEMENT_LIMIT", 5),
+			settlementWindow: loader.durationDefault("RATELIMIT_SETTLEMENT_WINDOW", 1*time.Minute),
 		},
 		log: LogConfig{
 			level:  strings.ToLower(loader.stringDefault("LOG_LEVEL", "info")),
@@ -254,7 +262,6 @@ func Load() (*Config, error) {
 	if cfg.bankAccountCipherKey == "" && environment == "development" {
 		cfg.bankAccountCipherKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 	}
-
 
 	cfg.validate(&loader)
 
@@ -411,9 +418,9 @@ func (t TransactionPollerConfig) MinAge() time.Duration {
 
 // RecurringDepositConfig governs the hourly savings schedule deposit loop.
 type RecurringDepositConfig struct {
-	enabled      bool
-	interval     time.Duration
-	minDeposit   string
+	enabled    bool
+	interval   time.Duration
+	minDeposit string
 }
 
 func (c Config) RecurringDeposit() RecurringDepositConfig {
@@ -534,6 +541,18 @@ func (c *Config) validate(loader *envLoader) {
 	}
 	if c.rateLimit.rebalanceWindow <= 0 {
 		loader.addError("RATELIMIT_REBALANCE_WINDOW must be greater than 0")
+	}
+	if c.rateLimit.authLimit <= 0 {
+		loader.addError("RATELIMIT_AUTH_LIMIT must be greater than 0")
+	}
+	if c.rateLimit.authWindow <= 0 {
+		loader.addError("RATELIMIT_AUTH_WINDOW must be greater than 0")
+	}
+	if c.rateLimit.settlementLimit <= 0 {
+		loader.addError("RATELIMIT_SETTLEMENT_LIMIT must be greater than 0")
+	}
+	if c.rateLimit.settlementWindow <= 0 {
+		loader.addError("RATELIMIT_SETTLEMENT_WINDOW must be greater than 0")
 	}
 
 	if !isOneOf(c.log.level, "debug", "info", "warn", "error") {
@@ -750,6 +769,22 @@ func (r RateLimitConfig) RebalanceLimit() int {
 
 func (r RateLimitConfig) RebalanceWindow() time.Duration {
 	return r.rebalanceWindow
+}
+
+func (r RateLimitConfig) AuthLimit() int {
+	return r.authLimit
+}
+
+func (r RateLimitConfig) AuthWindow() time.Duration {
+	return r.authWindow
+}
+
+func (r RateLimitConfig) SettlementLimit() int {
+	return r.settlementLimit
+}
+
+func (r RateLimitConfig) SettlementWindow() time.Duration {
+	return r.settlementWindow
 }
 
 type envLoader struct {
