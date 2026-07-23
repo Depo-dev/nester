@@ -865,6 +865,41 @@ func TestLoadSensitiveRateLimitOverrides(t *testing.T) {
 	}
 }
 
+// TestLoadRateLimitRejectsSubMillisecondWindows verifies that Redis-backed
+// limiter windows below 1ms are rejected: the Redis limiter converts the window
+// to whole milliseconds for PEXPIRE, so a sub-ms window truncates to 0 and would
+// silently disable enforcement.
+func TestLoadRateLimitRejectsSubMillisecondWindows(t *testing.T) {
+	cases := []struct {
+		name string
+		key  string
+		want string
+	}{
+		{"global", "RATELIMIT_GLOBAL_WINDOW", "RATELIMIT_GLOBAL_WINDOW must be at least 1ms"},
+		{"auth", "RATELIMIT_AUTH_WINDOW", "RATELIMIT_AUTH_WINDOW must be at least 1ms"},
+		{"settlement", "RATELIMIT_SETTLEMENT_WINDOW", "RATELIMIT_SETTLEMENT_WINDOW must be at least 1ms"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			baseEnv(t)
+			requiredEnv(t)
+			t.Setenv("APP_ENV", "development")
+			t.Setenv(tc.key, "500us")
+
+			chdir(t, t.TempDir())
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected Load() to fail for %s=500us", tc.key)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error to contain %q, got %q", tc.want, err.Error())
+			}
+		})
+	}
+}
+
 // TestLoadTrustedProxyCountOverride verifies RATELIMIT_TRUSTED_PROXY_COUNT is
 // honoured and that a negative value is rejected.
 func TestLoadTrustedProxyCountOverride(t *testing.T) {

@@ -568,6 +568,11 @@ func (c *Config) validate(loader *envLoader) {
 
 	if c.rateLimit.globalWindow <= 0 {
 		loader.addError("RATELIMIT_GLOBAL_WINDOW must be greater than 0")
+	} else if c.rateLimit.globalWindow < time.Millisecond {
+		// The Redis limiter converts the window to whole milliseconds for
+		// PEXPIRE; a sub-millisecond window truncates to 0 and the counter would
+		// expire immediately, silently disabling enforcement.
+		loader.addError("RATELIMIT_GLOBAL_WINDOW must be at least 1ms")
 	}
 
 	if c.rateLimit.writeLimit <= 0 {
@@ -596,12 +601,16 @@ func (c *Config) validate(loader *envLoader) {
 	}
 	if c.rateLimit.authWindow <= 0 {
 		loader.addError("RATELIMIT_AUTH_WINDOW must be greater than 0")
+	} else if c.rateLimit.authWindow < time.Millisecond {
+		loader.addError("RATELIMIT_AUTH_WINDOW must be at least 1ms")
 	}
 	if c.rateLimit.settlementLimit <= 0 {
 		loader.addError("RATELIMIT_SETTLEMENT_LIMIT must be greater than 0")
 	}
 	if c.rateLimit.settlementWindow <= 0 {
 		loader.addError("RATELIMIT_SETTLEMENT_WINDOW must be greater than 0")
+	} else if c.rateLimit.settlementWindow < time.Millisecond {
+		loader.addError("RATELIMIT_SETTLEMENT_WINDOW must be at least 1ms")
 	}
 	if c.rateLimit.trustedProxyCount < 0 {
 		loader.addError("RATELIMIT_TRUSTED_PROXY_COUNT must be zero or greater")
