@@ -95,8 +95,42 @@ and `h.strategy()`.
 | Module | Purpose |
 |--------|---------|
 | `env` | `setup_test_env()` — creates a default `Env` |
-| `assertions` | `assert_error`, `assert_ok`, `assert_eq_balance` helpers |
+| `assertions` | `assert_error`, `assert_ok`, `assert_eq_balance`, `assert_reentrancy_blocked` helpers |
 | `harness` | `NesterHarness` — full-protocol deployment harness for integration tests |
+| `hostile` | Reentrant token, strategy, and yield-source mocks for adversarial tests |
+
+---
+
+## Reentrancy guard resource cost
+
+The shared reentrancy guard uses Soroban temporary storage so the lock is scoped to the current transaction and clears automatically on revert.
+
+Measured in-process via `env.budget().reset_tracker()` around guarded `deposit` and `withdraw` calls in `vault` unit tests (`measure_reentrancy_guard_resource_cost_on_deposit_and_withdraw`). Run:
+
+```bash
+cargo test -p vault-contract measure_reentrancy_guard_resource_cost -- --nocapture
+```
+
+Record the printed CPU instruction and memory byte totals below when validating guard overhead. Native Rust test execution underestimates WASM costs; treat these as relative baselines.
+
+| Operation | CPU instructions | Memory bytes |
+|-----------|------------------|--------------|
+| `deposit` (with guard) | 2,285,474 | 249,857 |
+| `withdraw` (with guard) | 3,153,289 | 357,906 |
+
+---
+
+## Adversarial integration tests
+
+`tests/integration/src/integration/adversarial_tests.rs` exercises hostile mocks from `libs/test_utils/src/hostile.rs`:
+
+| Scenario | What it validates |
+|----------|-------------------|
+| `reentrant_token_during_deposit_is_blocked` | Token transfer hook cannot re-enter via `withdraw` |
+| `reentrant_strategy_during_rebalance_is_blocked` | Strategy callback cannot re-enter during rebalance |
+| `reentrant_yield_source_during_harvest_is_blocked` | External fee sink cannot re-enter during harvest |
+| `unregistered_callee_is_rejected` | Callee allowlist blocks unknown cross-contract targets |
+| `nested_emergency_queue_processing_does_not_double_guard` | Legitimate internal nesting via unguarded variants |
 
 ---
 
@@ -107,3 +141,56 @@ and `h.strategy()`.
 3. Use `h.vault()`, `h.token()`, `h.registry()`, `h.strategy()` to interact
    with contracts.
 4. Run `make integration-test` to verify.
+
+---
+
+## Property-based invariant tests
+
+`tests/integration/src/integration/property_tests.rs` contains property-based
+tests that validate core vault accounting invariants across thousands of
+randomised operation sequences.
+
+### Invariants tested
+
+| Invariant | Description |
+|-----------|-------------|
+| Share balance consistency | Sum of all user shares equals total_shares |
+| Share price monotonicity | Share price never decreases with positive yield |
+| Round-trip safety | Deposit then withdraw never returns more than deposited |
+| First deposit 1:1 | First deposit into empty vault creates 1:1 shares |
+| Conservation | Total assets equals sum of withdrawable + accrued fees |
+
+### Reference model
+
+A `ReferenceModel` provides an obviously-correct implementation of vault
+accounting. Randomised operations are applied to both the real contract and
+the reference model, and invariants are asserted after each step.
+
+### Running property tests
+
+```bash
+# Default (100 cases)
+cargo test -p nester-integration-tests property_tests
+
+# Deep run (override case count)
+PROPTEST_CASES=1000 cargo test -p nester-integration-tests property_tests
+
+# Specific property
+cargo test -p nester-integration-tests prop_share_balance_consistency
+```
+
+### Reproducing failures
+
+When a property fails, proptest prints the shrunk minimal sequence. The
+persistence file is committed so regressions stay caught. Re-run with the
+same seed to reproduce deterministically.
+
+### Edge cases covered
+
+Generators exercise adversarial values:
+- 1 stroop amounts
+- MIN_DEPOSIT boundary (10_000_000)
+- Large amounts (100_000+ XLM)
+- Empty vault first deposits
+- Full supply withdrawals
+- Long operation sequences (up to 50 operations)

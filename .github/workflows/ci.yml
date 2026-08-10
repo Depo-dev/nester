@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: ["*"]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Detect which areas of the monorepo changed so downstream jobs can skip
   # work they don't need to run. Each filter is an OR of globs; if ANY match,
@@ -135,9 +139,18 @@ jobs:
       - name: Test
         run: pnpm --filter @nester/dapp run test:coverage
 
+      # Enforcing at `critical`: all 6 critical advisories were fixed outright
+      # (see pnpm.overrides in the root package.json and the jspdf 4.x bump),
+      # so this gate is green today and genuinely fails on any NEW critical.
+      # The remaining 76 high / 60 moderate are deep transitive findings under
+      # the Expo/react-native and Trezor chains that the repo cannot resolve
+      # without upstream releases; raising this gate to `high` is tracked in
+      # #1025. Reported-but-not-enforced below so the backlog stays visible.
       - name: Audit JS dependencies (dapp)
-        run: pnpm audit --audit-level=moderate
-        continue-on-error: true
+        run: pnpm audit --audit-level=critical
+
+      - name: Report non-blocking JS advisories (dapp)
+        run: pnpm audit --audit-level=moderate || true
 
   security:
     name: Security Scanning
@@ -168,7 +181,6 @@ jobs:
         if: needs.changes.outputs.contracts == 'true' || needs.changes.outputs.shared == 'true'
         run: cargo audit
         working-directory: packages/contracts
-        continue-on-error: true
 
       - uses: actions/setup-go@v5
         if: needs.changes.outputs.api == 'true' || needs.changes.outputs.shared == 'true'
@@ -209,6 +221,13 @@ jobs:
         if: needs.changes.outputs.api == 'true' || needs.changes.outputs.shared == 'true'
         run: go install github.com/securego/gosec/v2/cmd/gosec@latest
 
+      # TODO(#1035): drop continue-on-error once the gosec backlog is cleared.
+      # Enforcing this gate surfaced 27 pre-existing findings across 8 rule
+      # classes, including two G704 SSRF (HIGH confidence and severity) in
+      # intelligence_proxy.go, two G202 SQL concatenations, and twelve G115
+      # integer-overflow conversions on chain-facing paths. Those need real
+      # review rather than a blanket suppression; #1035 closes by removing
+      # this line.
       - name: Run gosec
         if: needs.changes.outputs.api == 'true' || needs.changes.outputs.shared == 'true'
         run: gosec -severity medium ./...
@@ -228,11 +247,19 @@ jobs:
         if: needs.changes.outputs.dapp == 'true' || needs.changes.outputs.shared == 'true'
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      # Enforced at `critical` (0 findings today). See the note in the dapp job:
+      # every critical advisory is fixed via root pnpm.overrides rather than
+      # suppressed, so a new critical breaks the build. #1025 raises this to
+      # `high` once the Expo/react-native transitive backlog clears upstream.
       - name: Audit JavaScript dependencies
         if: needs.changes.outputs.dapp == 'true' || needs.changes.outputs.shared == 'true'
-        run: pnpm audit --audit-level=high
+        run: pnpm audit --audit-level=critical
         working-directory: apps/dapp/frontend
-        continue-on-error: true
+
+      - name: Report non-blocking JavaScript advisories
+        if: needs.changes.outputs.dapp == 'true' || needs.changes.outputs.shared == 'true'
+        run: pnpm audit --audit-level=high || true
+        working-directory: apps/dapp/frontend
 
       - uses: actions/setup-python@v5
         if: needs.changes.outputs.intelligence == 'true' || needs.changes.outputs.shared == 'true'
@@ -247,13 +274,11 @@ jobs:
         if: needs.changes.outputs.intelligence == 'true' || needs.changes.outputs.shared == 'true'
         run: pip-audit -r requirements.txt
         working-directory: apps/intelligence
-        continue-on-error: true
 
       - name: Run bandit
         if: needs.changes.outputs.intelligence == 'true' || needs.changes.outputs.shared == 'true'
         run: bandit -r app -ll
         working-directory: apps/intelligence
-        continue-on-error: true
 
       - name: Semgrep SAST (TypeScript/Next.js)
         if: needs.changes.outputs.dapp == 'true' || needs.changes.outputs.shared == 'true'
@@ -301,6 +326,12 @@ jobs:
     env:
       DATABASE_URL: postgres://nester:nester@localhost:5432/nester_test?sslmode=disable
       REDIS_URL: redis://localhost:6379
+      # Redis-backed tests (internal/cache, internal/notifications,
+      # internal/ws) skip via t.Skip when this is unset, following the
+      # convention in internal/middleware/ratelimit_backend_test.go. REDIS_URL
+      # above is what the app itself reads; without this, every such test
+      # silently skips in CI even though the redis service below is running.
+      REDIS_ADDR: localhost:6379
     steps:
       - uses: actions/checkout@v4
 

@@ -1,13 +1,14 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, panic_with_error, symbol_short, Address, Env, Error,
+    contract, contractimpl, contracttype, panic_with_error, symbol_short, Address, BytesN, Env, Error,
     IntoVal, Symbol, Val, Vec,
 };
 
 use nester_access_control::{AccessControl, Role};
 use nester_common::{
-    emit_event, fees::mul_div, ContractError, ProtocolType, SourceStatus, BASIS_POINT_SCALE,
+    adapters::ApyConfidence, emit_event, fees::mul_div, with_reentrancy_guard, CalleeAllowlist,
+    ContractError, ProtocolType, SourceStatus, BASIS_POINT_SCALE,
 };
 
 const STRATEGY: Symbol = symbol_short!("STRATEGY");
@@ -23,13 +24,18 @@ struct RegistryApySnapshot {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+/// Local mirror of `yield_registry::YieldSource`. The field set must match the
+/// registry's exactly — Soroban unpacks the returned map positionally, so a
+/// missing field fails the whole `get_active_sources` decode.
 struct RegistrySource {
     pub id: Symbol,
     pub contract_address: Address,
+    pub adapter: Option<Address>,
     pub protocol_type: ProtocolType,
     pub status: SourceStatus,
     pub added_at: u64,
     pub current_apy_bps: u32,
+    pub apy_confidence: ApyConfidence,
     pub apy_history: Vec<RegistryApySnapshot>,
     pub tvl: i128,
     pub risk_rating: u32,
@@ -39,6 +45,8 @@ struct RegistrySource {
     pub migration_required: bool,
     pub migration_completed: bool,
     pub migration_completed_at: u64,
+    pub failure_count: u32,
+    pub last_failure_at: u64,
 }
 
 struct RegistryClient<'a> {
@@ -52,6 +60,7 @@ impl<'a> RegistryClient<'a> {
     }
 
     fn get_active_sources(&self) -> Vec<RegistrySource> {
+        CalleeAllowlist::assert_allowed(self.env, self.contract_id);
         self.env.invoke_contract(
             self.contract_id,
             &Symbol::new(self.env, "get_active_sources"),
@@ -143,9 +152,11 @@ impl AllocationStrategyContract {
         vault_type: VaultType,
     ) {
         AccessControl::initialize(&env, &admin);
+        nester_common::Upgrade::init_schema_version(&env, 1);
         env.storage()
             .instance()
             .set(&DataKey::RegistryId, &registry_id);
+        CalleeAllowlist::register(&env, &registry_id);
         env.storage()
             .instance()
             .set(&DataKey::VaultType, &vault_type);
@@ -223,6 +234,10 @@ impl AllocationStrategyContract {
     }
 
     pub fn set_weights(env: Env, caller: Address, weights: Vec<AllocationWeight>) {
+        with_reentrancy_guard(env, |env| Self::set_weights_internal(env, caller, weights));
+    }
+
+    fn set_weights_internal(env: Env, caller: Address, weights: Vec<AllocationWeight>) {
         caller.require_auth();
         require_admin_or_operator(&env, &caller);
 
@@ -339,7 +354,7 @@ impl AllocationStrategyContract {
         target_weights: Vec<AllocationWeight>,
     ) -> bool {
         let threshold = Self::get_strategy_params(env).rebalance_threshold_bps;
-        let mut seen = Vec::new(&current_weights.env());
+        let mut seen = Vec::new(current_weights.env());
 
         for weight in current_weights.iter() {
             if !contains_symbol(&seen, &weight.source_id) {
@@ -431,7 +446,12 @@ impl AllocationStrategyContract {
                     adjusted_weights.push_back(w.clone());
                     healthy_weight_sum += w.weight_bps;
                 }
-                SourceStatus::Paused => {
+                // Degraded is set automatically once an adapter exceeds the
+                // failure threshold. Treat it exactly like Paused — freeze the
+                // existing allocation rather than force-draining through an
+                // adapter that is already failing. Recovery is an explicit
+                // admin action back to Active.
+                SourceStatus::Paused | SourceStatus::Degraded => {
                     // Skip: keep current allocation, delta = 0
                     total_to_redistribute -= current;
                     deltas.push_back(AllocationDelta {
@@ -513,9 +533,9 @@ impl AllocationStrategyContract {
             if let Some(idx) = max_idx {
                 let remainder = total_to_redistribute - distributed;
                 if remainder != 0 {
-                    let mut d = deltas.get(idx as u32).unwrap();
+                    let mut d = deltas.get(idx).unwrap();
                     d.delta += remainder;
-                    deltas.set(idx as u32, d);
+                    deltas.set(idx, d);
                 }
             }
         } else if total_to_redistribute > 0 {
@@ -610,7 +630,63 @@ impl AllocationStrategyContract {
     pub fn accept_admin(env: Env, new_admin: Address) {
         AccessControl::accept_admin(&env, &new_admin);
     }
+
+    // -----------------------------------------------------------------------
+    // Upgradeability & Schema Migration
+    // -----------------------------------------------------------------------
+
+    /// Proposes a new WASM upgrade for the allocation strategy.
+    ///
+    /// Requires Upgrader role and enforces MIN_UPGRADE_DELAY_ALLOCATION_STRATEGY (48 hours).
+    pub fn propose_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>, eta: u64) {
+        AccessControl::require_role(&env, &admin, Role::Upgrader);
+        nester_common::Upgrade::propose_upgrade(
+            &env,
+            &admin,
+            new_wasm_hash,
+            nester_common::MIN_UPGRADE_DELAY_ALLOCATION_STRATEGY,
+            eta,
+        );
+    }
+
+    /// Cancels a pending WASM upgrade for the allocation strategy.
+    ///
+    /// Requires Upgrader role.
+    pub fn cancel_upgrade(env: Env, admin: Address) {
+        AccessControl::require_role(&env, &admin, Role::Upgrader);
+        nester_common::Upgrade::cancel_upgrade(&env, &admin);
+    }
+
+    /// Executes a matured WASM upgrade for the allocation strategy.
+    ///
+    /// Execution is permissionless after maturity.
+    pub fn execute_upgrade(env: Env, caller: Address, wasm_hash: BytesN<32>) {
+        nester_common::Upgrade::execute_upgrade(&env, &caller, wasm_hash);
+    }
+
+    /// Retrieves pending upgrade details if present.
+    pub fn get_pending_upgrade(env: Env) -> Option<nester_common::PendingUpgrade> {
+        nester_common::Upgrade::get_pending_upgrade(&env)
+    }
+
+    /// Returns current contract schema version.
+    pub fn get_schema_version(env: Env) -> u32 {
+        nester_common::Upgrade::get_schema_version(&env)
+    }
+
+    /// Bumps schema version if needed (idempotent).
+    pub fn migrate(env: Env) -> u32 {
+        let current = nester_common::Upgrade::get_schema_version(&env);
+        let target = 1u32;
+        if current < target {
+            nester_common::Upgrade::set_schema_version(&env, target);
+            target
+        } else {
+            current
+        }
+    }
 }
+
 
 // ---------------------------------------------------------------------------
 // Private helpers
@@ -667,9 +743,7 @@ fn suggest_weights_from_sources(env: &Env, sources: Vec<RegistrySource>) -> Vec<
 
 fn source_score(source: &RegistrySource) -> i128 {
     let raw_risk = source.risk_rating;
-    let clamped_risk = if raw_risk == 0 {
-        MAX_RISK_RATING
-    } else if raw_risk > MAX_RISK_RATING {
+    let clamped_risk = if raw_risk == 0 || raw_risk > MAX_RISK_RATING {
         MAX_RISK_RATING
     } else {
         raw_risk
@@ -695,12 +769,27 @@ fn optimal_allocation_from_sources(
     if sources.is_empty() {
         return weights;
     }
-    let mut best = sources.get(0).unwrap();
+    // Rank only sources with a known APY. A source reporting Unavailable
+    // carries a meaningless `current_apy_bps`; ranking on it would let a
+    // silent adapter win or lose the allocation on noise.
+    let mut best: Option<RegistrySource> = None;
     for source in sources.iter() {
-        if source.current_apy_bps > best.current_apy_bps {
-            best = source;
+        if matches!(source.apy_confidence, ApyConfidence::Unavailable) {
+            continue;
+        }
+        match &best {
+            None => best = Some(source),
+            Some(b) if source.current_apy_bps > b.current_apy_bps => best = Some(source),
+            _ => {}
         }
     }
+    // Every source has an unknown APY. Returning an empty target holds the
+    // current allocation steady, which is the right answer: picking one at
+    // random would be a 100% bet placed on no information.
+    let best = match best {
+        Some(b) => b,
+        None => return weights,
+    };
     weights.push_back(AllocationWeight {
         source_id: best.id.clone(),
         weight_bps: BASIS_POINT_SCALE,
@@ -720,20 +809,31 @@ fn weighted_apy_for(weights: &Vec<AllocationWeight>, sources: &Vec<RegistrySourc
     (acc / BASIS_POINT_SCALE as u64) as u32
 }
 
+/// APY of a single source, or 0 when it is absent or its reading is unknown.
+///
+/// Treating "unknown" as 0 here is deliberate and safe: this feeds drift
+/// detection, where a lower weighted APY only makes a rebalance more likely to
+/// be *considered*. Allocation targets themselves never rank on an unknown
+/// reading — see [`optimal_allocation_from_sources`].
 fn apy_for_source(sources: &Vec<RegistrySource>, source_id: &Symbol) -> u32 {
     for source in sources.iter() {
         if &source.id == source_id {
+            if matches!(source.apy_confidence, ApyConfidence::Unavailable) {
+                return 0;
+            }
             return source.current_apy_bps;
         }
     }
     0
 }
 
-/// Panic with [`ContractError::Unauthorized`] unless `account` holds Admin or
-/// Operator. Day-to-day operations (e.g. weight updates) are open to both.
+/// Panic with [`ContractError::Unauthorized`] unless `account` holds Admin,
+/// Operator, or the narrower [`Role::RebalanceKeeper`] (issue #820).
+/// Day-to-day operations (e.g. weight updates) are open to all three.
 fn require_admin_or_operator(env: &Env, account: &Address) {
     if !AccessControl::has_role(env, account, Role::Admin)
         && !AccessControl::has_role(env, account, Role::Operator)
+        && !AccessControl::has_role(env, account, Role::RebalanceKeeper)
     {
         panic_with_error!(env, ContractError::Unauthorized);
     }
@@ -841,7 +941,7 @@ fn even_distribution(env: &Env, count: usize) -> Vec<u32> {
 }
 
 fn proportional_with_cap(env: &Env, scores: &Vec<i128>, max_weight_bps: u32) -> Vec<u32> {
-    if scores.len() == 0 {
+    if scores.is_empty() {
         return Vec::new(env);
     }
 
@@ -993,7 +1093,7 @@ fn compute_weights(env: &Env, apys: Vec<SourceApy>) -> Vec<AllocationWeight> {
         }
     }
 
-    if eligible_indices.len() > 0 {
+    if !eligible_indices.is_empty() {
         let computed = match vault_type {
             VaultType::DeFi500 => even_distribution(env, eligible_indices.len() as usize),
             _ => proportional_with_cap(env, &scores, params.max_weight_bps),
@@ -1020,7 +1120,7 @@ fn persist_allocations(env: &Env, total_amount: i128, weights: &Vec<AllocationWe
 fn allocation_amounts(weights: &Vec<AllocationWeight>, total_amount: i128) -> Vec<(Symbol, i128)> {
     let scale = BASIS_POINT_SCALE as i128;
     let env = weights.env();
-    let mut out = Vec::new(&env);
+    let mut out = Vec::new(env);
     let mut total_allocated = 0_i128;
     let mut max_index = None;
     let mut max_weight = 0_u32;
@@ -1033,7 +1133,7 @@ fn allocation_amounts(weights: &Vec<AllocationWeight>, total_amount: i128) -> Ve
         total_allocated += amount;
         if weight.weight_bps > max_weight {
             max_weight = weight.weight_bps;
-            max_index = Some(index as usize);
+            max_index = Some(index);
         }
         out.push_back((weight.source_id, amount));
     }
@@ -1077,6 +1177,7 @@ fn lookup_weight(weights: &Vec<AllocationWeight>, target: &Symbol) -> u32 {
 }
 
 fn registry_has_source(env: &Env, registry_id: &Address, source_id: &Symbol) -> bool {
+    CalleeAllowlist::assert_allowed(env, registry_id);
     env.invoke_contract(
         registry_id,
         &Symbol::new(env, "has_source"),
@@ -1089,6 +1190,7 @@ fn registry_get_source_status(
     registry_id: &Address,
     source_id: &Symbol,
 ) -> SourceStatus {
+    CalleeAllowlist::assert_allowed(env, registry_id);
     env.invoke_contract(
         registry_id,
         &Symbol::new(env, "get_source_status"),
@@ -1097,6 +1199,7 @@ fn registry_get_source_status(
 }
 
 fn registry_get_active_sources(env: &Env, registry_id: &Address) -> Vec<RegistrySource> {
+    CalleeAllowlist::assert_allowed(env, registry_id);
     match env.try_invoke_contract::<Vec<RegistrySource>, Error>(
         registry_id,
         &Symbol::new(env, "get_active_sources"),
