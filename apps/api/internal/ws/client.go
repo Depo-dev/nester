@@ -54,22 +54,37 @@ func (c *Client) readPump() {
 
 		var msg ClientMessage
 		if err := json.Unmarshal(message, &msg); err == nil {
-			if msg.Action == "subscribe" {
+			switch msg.Action {
+			case ActionSubscribe:
 				c.mu.Lock()
 				for _, ch := range msg.Channels {
 					c.subs[ch] = true
 					c.hub.subscribe(c, ch)
 				}
 				c.mu.Unlock()
-			} else if msg.Action == "unsubscribe" {
+			case ActionUnsubscribe:
 				c.mu.Lock()
 				for _, ch := range msg.Channels {
 					delete(c.subs, ch)
 					c.hub.unsubscribe(c, ch)
 				}
 				c.mu.Unlock()
+			case ActionPing:
+				c.pong()
 			}
 		}
+	}
+}
+
+// pong answers an application-level ping (see EventPong). It is a
+// non-blocking send: if the client's buffer is already full the connection
+// is by definition not keeping up, and withholding the pong lets the
+// client's own heartbeat timeout tear the link down and reconnect — which
+// is the outcome we want anyway.
+func (c *Client) pong() {
+	select {
+	case c.send <- Event{Type: EventPong, Timestamp: time.Now()}:
+	default:
 	}
 }
 
