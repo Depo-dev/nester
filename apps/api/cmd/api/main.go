@@ -1131,6 +1131,7 @@ func run() error {
 		"version", version,
 		"horizon_url", cfg.Stellar().HorizonURL(),
 		"rpc_url", cfg.Stellar().RPCURL(),
+		"network_passphrase", cfg.Stellar().NetworkPassphrase(),
 		"auto_migrate", cfg.Startup().EnableAutoMigrate(),
 	)
 
