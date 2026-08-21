@@ -40,6 +40,14 @@ interface WebSocketContextValue {
     status: WSConnectionStatus;
     /** True only when the socket is fully open */
     isConnected: boolean;
+    /**
+     * True when displayed values may no longer reflect the chain — i.e. the
+     * socket is not live. Components rendering a balance must use this to
+     * visually distinguish the value from a live one.
+     */
+    isStale: boolean;
+    /** Epoch ms of the last confirmed sync (event or HTTP reconcile) */
+    lastUpdatedAt: number | null;
     /** The most recent raw event received */
     lastEvent: WSEvent | null;
     /** Imperatively subscribe to an additional channel */
@@ -55,6 +63,8 @@ interface WebSocketContextValue {
 const WebSocketContext = createContext<WebSocketContextValue>({
     status: "offline",
     isConnected: false,
+    isStale: true,
+    lastUpdatedAt: null,
     lastEvent: null,
     subscribe: () => {},
     unsubscribe: () => {},
@@ -285,10 +295,22 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         [applyBalanceUpdate, applyYieldAccrual, addNotification]
     );
 
+    // Pull the authoritative balances over HTTP after every (re)connect.
+    // The hub replays a bounded per-channel history on subscribe, which is
+    // not the same as a snapshot — reconciling is what makes a reconnected
+    // client's numbers trustworthy rather than merely recent.
+    //
+    // Notifications reconcile on their own via setConnectionState below;
+    // duplicating that call here would double-fetch on every reconnect.
+    const reconcile = useCallback(async () => {
+        await refreshBalances();
+    }, [refreshBalances]);
+
     const {
         isConnected,
         status,
         lastEvent,
+        lastUpdatedAt,
         subscribe,
         unsubscribe,
         disconnect,
@@ -299,6 +321,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         channels,
         onEvent: handleEvent,
         onPoll: refreshBalances,
+        onReconcile: reconcile,
     });
 
     const hasMountedRef = useRef(false);
@@ -314,18 +337,20 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         setConnectionState(WS_URL ? isConnected : false);
     }, [isConnected, setConnectionState]);
 
-    const value = useMemo<WebSocketContextValue>(
-        () => ({
-            status: WS_URL ? status : "offline",
+    const value = useMemo<WebSocketContextValue>(() => {
+        const effectiveStatus: WSConnectionStatus = WS_URL ? status : "offline";
+        return {
+            status: effectiveStatus,
             isConnected: WS_URL ? isConnected : false,
+            isStale: effectiveStatus !== "connected",
+            lastUpdatedAt,
             lastEvent,
             subscribe,
             unsubscribe,
             disconnect,
             manualReconnect,
-        }),
-        [status, isConnected, lastEvent, subscribe, unsubscribe, disconnect, manualReconnect]
-    );
+        };
+    }, [status, isConnected, lastUpdatedAt, lastEvent, subscribe, unsubscribe, disconnect, manualReconnect]);
 
     return (
         <WebSocketContext.Provider value={value}>
