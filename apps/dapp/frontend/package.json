@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test:a11y": "playwright test tests/accessibility.spec.ts",
+    "test:e2e": "playwright test",
+    "test:ws": "playwright test tests/websocket-reconnect.spec.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

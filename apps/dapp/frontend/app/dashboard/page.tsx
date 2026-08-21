@@ -30,6 +30,8 @@ import { useTokenPrices } from "@/hooks/useTokenPrices";
 import { useNetwork } from "@/hooks/useNetwork";
 import { AppShell } from "@/components/app-shell";
 import { useOfflineStatus } from "@/hooks/useOfflineStatus";
+import { LiveValue } from "@/components/live-value";
+import { useWebSocketContext } from "@/components/websocket-provider";
 import { useLocale, useTranslations } from "@/context/locale-context";
 import { formatDistanceToNow } from "date-fns";
 import { useVaults, type VaultWithPerf } from "@/hooks/useVaults";
@@ -459,6 +461,16 @@ export default function Dashboard() {
     const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("1M");
     const [onboardingOpen, setOnboardingOpen] = useState(false);
     const { isOffline, lastSynced } = useOfflineStatus();
+    const { lastUpdatedAt: wsLastUpdatedAt } = useWebSocketContext();
+
+    // Prefer the socket's own freshness stamp — it is set by the events and
+    // HTTP reconciles that actually produced these numbers. useOfflineStatus
+    // only knows about browser connectivity, which can look fine while the
+    // socket is blackholed.
+    const balanceAsOf = useMemo(
+        () => (wsLastUpdatedAt !== null ? new Date(wsLastUpdatedAt) : lastSynced),
+        [wsLastUpdatedAt, lastSynced]
+    );
 
     // Live data
     const { vaults, isLoading: vaultsLoading } = useVaults(userId);
@@ -586,12 +598,14 @@ export default function Dashboard() {
                     ) : (
                         <div>
                             <p className="text-[42px] font-light leading-none text-black dark:text-white tracking-[-0.02em]" aria-live="polite">
-                                {formatCurrency(totalBalanceUsd, "USD")}
+                                <LiveValue label={t("dashboard.totalBalance")}>
+                                    {formatCurrency(totalBalanceUsd, "USD")}
+                                </LiveValue>
                             </p>
                             <p className="mt-2 text-[12px] text-black/35 dark:text-white/35 tracking-wide">{t("dashboard.totalBalance")}</p>
-                            {lastSynced && (
-                                <p className="mt-1.5 text-[11px] text-black/25 dark:text-white/25">
-                                    Last updated {formatDistanceToNow(lastSynced)} ago
+                            {balanceAsOf && (
+                                <p className="mt-1.5 text-[11px] text-black/25 dark:text-white/25" data-testid="balance-last-updated">
+                                    Last updated {formatDistanceToNow(balanceAsOf)} ago
                                 </p>
                             )}
                         </div>

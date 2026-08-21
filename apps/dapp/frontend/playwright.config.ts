@@ -22,5 +22,12 @@ export default defineConfig({
     url: 'http://localhost:3001',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
+    env: {
+      // Enables app/e2e/* harness routes, which 404 everywhere else.
+      NEXT_PUBLIC_E2E_HARNESS: '1',
+      // Points the client at a socket URL the tests intercept with
+      // page.routeWebSocket — no real hub needs to be running.
+      NEXT_PUBLIC_WS_URL: 'ws://localhost:3001/ws',
+    },
   },
 });
