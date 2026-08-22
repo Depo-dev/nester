@@ -47,6 +47,22 @@ type Config struct {
 	harvest               HarvestConfig
 	rebalancer            RebalancerConfig
 	schedulerLeadership   SchedulerLeadershipConfig
+	tracing               TracingConfig
+}
+
+// TracingConfig holds the OpenTelemetry tracing settings (nester#1054).
+//
+// Tracing is opt-in: with TRACING_ENABLED unset the tracer provider is a no-op
+// and no exporter connection is attempted, so the application starts and
+// serves normally without a collector present.
+type TracingConfig struct {
+	enabled          bool
+	otlpEndpoint     string
+	otlpInsecure     bool
+	serviceName      string
+	exporterTimeout  time.Duration
+	sampleRatio      float64
+	latencyThreshold time.Duration
 }
 
 // AccountCipherConfig holds the versioned key set used to encrypt sensitive
@@ -247,6 +263,15 @@ func Load() (*Config, error) {
 		},
 		redis: RedisConfig{
 			addr: loader.stringDefault("REDIS_ADDR", ""),
+		},
+		tracing: TracingConfig{
+			enabled:          loader.boolDefault("TRACING_ENABLED", false),
+			otlpEndpoint:     loader.stringDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
+			otlpInsecure:     loader.boolDefault("OTEL_EXPORTER_OTLP_INSECURE", true),
+			serviceName:      loader.stringDefault("OTEL_SERVICE_NAME", "nester-api"),
+			exporterTimeout:  loader.durationDefault("OTEL_EXPORTER_TIMEOUT", 10*time.Second),
+			sampleRatio:      loader.floatDefault("TRACING_SAMPLE_RATIO", 0.05),
+			latencyThreshold: loader.durationDefault("TRACING_LATENCY_THRESHOLD", 1*time.Second),
 		},
 		settlementProviderURL: loader.stringDefault("SETTLEMENT_PROVIDER_URL", ""),
 		auth: AuthConfig{
@@ -472,6 +497,52 @@ func (r RedisConfig) Addr() string {
 	return r.addr
 }
 
+// Tracing returns the OpenTelemetry tracing settings (nester#1054).
+func (c *Config) Tracing() TracingConfig {
+	return c.tracing
+}
+
+// Enabled reports whether trace export is switched on. When false the
+// application installs a no-op tracer provider and never dials a collector.
+func (t TracingConfig) Enabled() bool {
+	return t.enabled
+}
+
+// OTLPEndpoint is the host:port of the OTLP/gRPC collector.
+func (t TracingConfig) OTLPEndpoint() string {
+	return t.otlpEndpoint
+}
+
+// OTLPInsecure reports whether the collector connection skips TLS. This is the
+// default for local development against a collector on the same host; deploy
+// with it false so spans are not shipped in plaintext.
+func (t TracingConfig) OTLPInsecure() bool {
+	return t.otlpInsecure
+}
+
+// ServiceName is reported as service.name on every span this process emits.
+func (t TracingConfig) ServiceName() string {
+	return t.serviceName
+}
+
+// ExporterTimeout bounds a single export round trip to the collector.
+func (t TracingConfig) ExporterTimeout() time.Duration {
+	return t.exporterTimeout
+}
+
+// SampleRatio is the head-based sampling probability applied to traces that
+// are neither errors nor slow. Errors and requests exceeding LatencyThreshold
+// are retained regardless of this value.
+func (t TracingConfig) SampleRatio() float64 {
+	return t.sampleRatio
+}
+
+// LatencyThreshold is the server-span duration above which a trace is retained
+// irrespective of the base sample ratio.
+func (t TracingConfig) LatencyThreshold() time.Duration {
+	return t.latencyThreshold
+}
+
 func (c Config) Bank() BankConfig {
 	return c.bank
 }
@@ -605,6 +676,26 @@ func (b BankConfig) FlutterwaveKey() string {
 func (c *Config) validate(loader *envLoader) {
 	if strings.TrimSpace(c.server.host) == "" {
 		loader.addError("SERVER_HOST is required")
+	}
+
+	if c.tracing.enabled {
+		if strings.TrimSpace(c.tracing.otlpEndpoint) == "" {
+			loader.addError("OTEL_EXPORTER_OTLP_ENDPOINT is required when TRACING_ENABLED is true")
+		}
+		if strings.TrimSpace(c.tracing.serviceName) == "" {
+			loader.addError("OTEL_SERVICE_NAME is required when TRACING_ENABLED is true")
+		}
+		if c.tracing.exporterTimeout <= 0 {
+			loader.addError("OTEL_EXPORTER_TIMEOUT must be greater than 0")
+		}
+	}
+
+	if c.tracing.sampleRatio < 0 || c.tracing.sampleRatio > 1 {
+		loader.addError("TRACING_SAMPLE_RATIO must be between 0 and 1")
+	}
+
+	if c.tracing.latencyThreshold < 0 {
+		loader.addError("TRACING_LATENCY_THRESHOLD must not be negative")
 	}
 
 	if c.server.port <= 0 || c.server.port > 65535 {
@@ -1020,6 +1111,19 @@ func (l *envLoader) intDefault(key string, fallback int) int {
 	value, err := strconv.Atoi(raw)
 	if err != nil {
 		l.addError(fmt.Sprintf("%s must be an integer, got %q", key, raw))
+		return fallback
+	}
+	return value
+}
+
+func (l *envLoader) floatDefault(key string, fallback float64) float64 {
+	raw, ok := l.lookup(key)
+	if !ok {
+		return fallback
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		l.addError(fmt.Sprintf("%s must be a number, got %q", key, raw))
 		return fallback
 	}
 	return value
