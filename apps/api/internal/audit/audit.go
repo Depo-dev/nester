@@ -409,13 +409,20 @@ func (s *auditService) AnchorLatestEntry(ctx context.Context) (string, error) {
 	// Write to external append-only log file (file anchor)
 	anchorRecord := fmt.Sprintf("[%s] SEQ:%d HASH:%s\n", time.Now().UTC().Format(time.RFC3339), seq, entryHash)
 
-	// Ensure directory exists
+	// Ensure directory exists.
+	//
+	// Permissions are restrictive because this file is the root of the audit
+	// chain's tamper-evidence: it is the external record against which a
+	// rewritten in-database chain is detected (nester#1035, G301/G302). A
+	// world-readable anchor log leaks the audit sequence to any local process,
+	// and a world-writable one would let an attacker forge the very anchors
+	// that are supposed to catch them.
 	dir := filepath.Dir(s.anchorConfig.FilePath)
 	if dir != "." && dir != "/" {
-		_ = os.MkdirAll(dir, 0755)
+		_ = os.MkdirAll(dir, 0o700)
 	}
 
-	f, err := os.OpenFile(s.anchorConfig.FilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(s.anchorConfig.FilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("open anchor log file: %w", err)
 	}

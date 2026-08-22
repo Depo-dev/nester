@@ -23,9 +23,9 @@ import (
 const maxRequestBodyBytes int64 = 1 << 20
 
 type VaultHandler struct {
-	service            *service.VaultService
-	rebalanceSvc       *service.VaultRebalanceService
-	wsHub              *ws.Hub
+	service              *service.VaultService
+	rebalanceSvc         *service.VaultRebalanceService
+	wsHub                *ws.Hub
 	rebalanceRateLimiter func(http.Handler) http.Handler
 }
 
@@ -532,18 +532,18 @@ func (h *VaultHandler) rebalancePosition(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := validateCurrencyCode(req.Currency); err != nil {
-		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("invalid currency: " + err.Error()))
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("invalid currency: "+err.Error()))
 		return
 	}
 
 	result, err := h.service.RebalancePosition(r.Context(), service.RebalancePositionInput{
-		VaultID:     vaultID,
-		UserID:      userID,
+		VaultID:      vaultID,
+		UserID:       userID,
 		FromProtocol: req.FromProtocol,
 		ToProtocol:   req.ToProtocol,
-		Amount:      amount,
-		Currency:    req.Currency,
-		TxHash:      "",
+		Amount:       amount,
+		Currency:     req.Currency,
+		TxHash:       "",
 	})
 	if err != nil {
 		h.writeDomainError(w, r, err)
@@ -551,13 +551,13 @@ func (h *VaultHandler) rebalancePosition(w http.ResponseWriter, r *http.Request)
 	}
 
 	type rebalanceResponse struct {
-		Vault              vault.Vault          `json:"vault"`
-		FromProtocolBalance decimal.Decimal      `json:"from_protocol_balance"`
-		ToProtocolBalance   decimal.Decimal      `json:"to_protocol_balance"`
+		Vault               vault.Vault     `json:"vault"`
+		FromProtocolBalance decimal.Decimal `json:"from_protocol_balance"`
+		ToProtocolBalance   decimal.Decimal `json:"to_protocol_balance"`
 	}
 
 	response.WriteJSON(w, http.StatusOK, response.OK(rebalanceResponse{
-		Vault:              result.Vault,
+		Vault:               result.Vault,
 		FromProtocolBalance: result.FromProtocolBalance,
 		ToProtocolBalance:   result.ToProtocolBalance,
 	}))

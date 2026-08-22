@@ -15,7 +15,10 @@ import (
 
 // defaultDevJWTSecret is the placeholder value shipped in .env.example. It is long
 // enough to pass the length check, so it is rejected explicitly outside development.
-const defaultDevJWTSecret = "dev-nester-jwt-secret-change-in-production"
+// This is a deny-list entry, not a credential: config validation rejects
+// startup when AUTH_JWT_SECRET equals it outside development, so its presence
+// in source is what makes the check possible (nester#1035, G101).
+const defaultDevJWTSecret = "dev-nester-jwt-secret-change-in-production" // #nosec G101 -- known-bad placeholder that startup validation refuses, not a real secret
 
 // maxKeyVersionLen bounds an account cipher key version label so it fits the
 // bank_accounts.key_version VARCHAR(32) column.

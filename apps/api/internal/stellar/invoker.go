@@ -510,6 +510,16 @@ func scValAsSymbol(val xdr.ScVal) (string, bool) {
 	return string(*val.Sym), true
 }
 
+// I128ScValToInt64 converts an i128 contract return value to int64, refusing
+// any value that does not fit rather than truncating it.
+//
+// Truncation matters here: these values are stroop amounts on preview and
+// balance paths, and a silently wrapped uint64 becomes a negative amount that
+// downstream arithmetic would treat as real (nester#1035, G115).
+func I128ScValToInt64(val xdr.ScVal) (int64, error) {
+	return i128ScValToInt64(val)
+}
+
 func i128ScValToInt64(val xdr.ScVal) (int64, error) {
 	if val.Type != xdr.ScValTypeScvI128 || val.I128 == nil {
 		return 0, fmt.Errorf("expected i128 value")

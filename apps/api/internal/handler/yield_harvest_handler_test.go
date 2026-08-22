@@ -47,7 +47,7 @@ func newYieldHarvestServer(t *testing.T, userID uuid.UUID, svc yieldHarvestServi
 func decodeYieldHarvestData(t *testing.T, body io.Reader) service.ListYieldHarvestsOutput {
 	t.Helper()
 	var env struct {
-		Success bool                        `json:"success"`
+		Success bool                            `json:"success"`
 		Data    service.ListYieldHarvestsOutput `json:"data"`
 	}
 	if err := json.NewDecoder(body).Decode(&env); err != nil {

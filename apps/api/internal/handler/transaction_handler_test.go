@@ -388,13 +388,13 @@ func TestGetTransactionByHashReturns200ForOwner(t *testing.T) {
 
 	txHash := "tx_hash_owner"
 	txRepo.transactions[txHash] = transaction.Transaction{
-		ID:      uuid.New(),
-		VaultID: vaultID,
-		Type:    transaction.TypeDeposit,
-		Amount:  decimal.NewFromFloat(100.0),
+		ID:       uuid.New(),
+		VaultID:  vaultID,
+		Type:     transaction.TypeDeposit,
+		Amount:   decimal.NewFromFloat(100.0),
 		Currency: "USDC",
-		TxHash:  txHash,
-		Status:  transaction.StatusPending,
+		TxHash:   txHash,
+		Status:   transaction.StatusPending,
 	}
 
 	resp, err := http.Get(server.URL + "/api/v1/transactions/" + txHash)

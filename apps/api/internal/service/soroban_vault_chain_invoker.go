@@ -2,10 +2,7 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
-
-	"github.com/stellar/go/xdr"
 
 	"github.com/suncrestlabs/nester/apps/api/internal/stellar"
 )
@@ -13,8 +10,8 @@ import (
 // SorobanVaultChainInvoker implements VaultChainInvoker by submitting
 // InvokeHostFunction transactions to the Soroban RPC node.
 type SorobanVaultChainInvoker struct {
-	invoker              *stellar.ContractInvoker
-	defaultSlippageBps   int
+	invoker            *stellar.ContractInvoker
+	defaultSlippageBps int
 }
 
 func NewSorobanVaultChainInvoker(
@@ -110,10 +107,9 @@ func (s *SorobanVaultChainInvoker) PreviewWithdrawNet(ctx context.Context, contr
 	if err != nil {
 		return 0, err
 	}
-	if val.Type != xdr.ScValTypeScvI128 || val.I128 == nil {
-		return 0, errors.New("expected i128 return value")
-	}
-	return int64(val.I128.Lo), nil
+	// Bounds-checked rather than a direct int64() conversion: a value above
+	// int64 max would otherwise truncate into a negative amount.
+	return stellar.I128ScValToInt64(val)
 }
 
 func (s *SorobanVaultChainInvoker) PreviewDeposit(ctx context.Context, contractAddress string, amountStroops int64) (int64, error) {
@@ -121,10 +117,9 @@ func (s *SorobanVaultChainInvoker) PreviewDeposit(ctx context.Context, contractA
 	if err != nil {
 		return 0, err
 	}
-	if val.Type != xdr.ScValTypeScvI128 || val.I128 == nil {
-		return 0, errors.New("expected i128 return value")
-	}
-	return int64(val.I128.Lo), nil
+	// Bounds-checked rather than a direct int64() conversion: a value above
+	// int64 max would otherwise truncate into a negative amount.
+	return stellar.I128ScValToInt64(val)
 }
 
 // PreviewWithdraw calls preview_withdraw on the vault contract and returns the
@@ -138,10 +133,9 @@ func (s *SorobanVaultChainInvoker) PreviewWithdraw(ctx context.Context, contract
 	if err != nil {
 		return 0, err
 	}
-	if val.Type != xdr.ScValTypeScvI128 || val.I128 == nil {
-		return 0, errors.New("expected i128 return value")
-	}
-	return int64(val.I128.Lo), nil
+	// Bounds-checked rather than a direct int64() conversion: a value above
+	// int64 max would otherwise truncate into a negative amount.
+	return stellar.I128ScValToInt64(val)
 }
 
 // EmergencyWithdrawAll invokes the vault contract's emergency_withdraw_all

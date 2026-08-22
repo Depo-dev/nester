@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -104,30 +105,13 @@ func HashIntent(i *Intent) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// itoa renders an int64 for the intent hash.
+//
+// strconv rather than a hand-rolled conversion: the manual version needed an
+// int64-to-uint64 conversion to handle the int64 minimum, which is exactly the
+// kind of narrowing that invites an overflow bug (and which gosec flags).
 func itoa(v int64) string {
-	if v == 0 {
-		return "0"
-	}
-	neg := v < 0
-	// Guard against the int64 minimum, whose negation overflows.
-	var u uint64
-	if neg {
-		u = uint64(-(v + 1)) + 1
-	} else {
-		u = uint64(v)
-	}
-	var buf [20]byte
-	pos := len(buf)
-	for u > 0 {
-		pos--
-		buf[pos] = byte('0' + u%10)
-		u /= 10
-	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
+	return strconv.FormatInt(v, 10)
 }
 
 // SlogSink writes signing events to a dedicated structured logger.

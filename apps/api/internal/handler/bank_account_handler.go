@@ -162,9 +162,9 @@ func (h *BankAccountHandler) authorizeUserPath(r *http.Request) (uuid.UUID, erro
 }
 
 var (
-	errUnauthorized     = errors.New("unauthorized")
-	errForbidden        = errors.New("forbidden")
-	errPathUserInvalid  = errors.New("invalid user id")
+	errUnauthorized    = errors.New("unauthorized")
+	errForbidden       = errors.New("forbidden")
+	errPathUserInvalid = errors.New("invalid user id")
 )
 
 func (h *BankAccountHandler) writeAuthError(w http.ResponseWriter, err error) {

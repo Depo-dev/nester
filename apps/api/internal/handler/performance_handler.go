@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	perfdom "github.com/suncrestlabs/nester/apps/api/internal/domain/performance"
 	"github.com/suncrestlabs/nester/apps/api/internal/auth"
+	perfdom "github.com/suncrestlabs/nester/apps/api/internal/domain/performance"
 	vaultdom "github.com/suncrestlabs/nester/apps/api/internal/domain/vault"
 	logpkg "github.com/suncrestlabs/nester/apps/api/pkg/logger"
 	"github.com/suncrestlabs/nester/apps/api/pkg/response"
