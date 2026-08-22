@@ -13,11 +13,11 @@ import (
 type Outcome string
 
 const (
-	OutcomeSigned    Outcome = "signed"
-	OutcomeRejected  Outcome = "rejected"
+	OutcomeSigned       Outcome = "signed"
+	OutcomeRejected     Outcome = "rejected"
 	OutcomeUnauthorized Outcome = "unauthorized"
-	OutcomeDisabled  Outcome = "disabled"
-	OutcomeError     Outcome = "error"
+	OutcomeDisabled     Outcome = "disabled"
+	OutcomeError        Outcome = "error"
 )
 
 // Event is one security audit record from the signing boundary.
@@ -212,15 +212,15 @@ func (m *MultiSink) Record(ctx context.Context, ev Event) error {
 type Counters struct {
 	mu sync.Mutex
 
-	requests      map[Operation]int64
-	signed        map[Operation]int64
-	rejected      map[Rejection]int64
-	unauthorized  int64
-	disabled      int64
-	errors        int64
-	latencyTotal  time.Duration
-	latencyCount  int64
-	latencyMax    time.Duration
+	requests     map[Operation]int64
+	signed       map[Operation]int64
+	rejected     map[Rejection]int64
+	unauthorized int64
+	disabled     int64
+	errors       int64
+	latencyTotal time.Duration
+	latencyCount int64
+	latencyMax   time.Duration
 }
 
 // NewCounters builds an empty counter set.
@@ -286,14 +286,14 @@ func (c *Counters) observeLatencyLocked(latency time.Duration) {
 
 // Snapshot is an immutable copy of the counters for reporting.
 type Snapshot struct {
-	Requests      map[Operation]int64
-	Signed        map[Operation]int64
-	Rejected      map[Rejection]int64
-	Unauthorized  int64
-	Disabled      int64
-	Errors        int64
-	MeanLatency   time.Duration
-	MaxLatency    time.Duration
+	Requests       map[Operation]int64
+	Signed         map[Operation]int64
+	Rejected       map[Rejection]int64
+	Unauthorized   int64
+	Disabled       int64
+	Errors         int64
+	MeanLatency    time.Duration
+	MaxLatency     time.Duration
 	LatencySamples int64
 }
 

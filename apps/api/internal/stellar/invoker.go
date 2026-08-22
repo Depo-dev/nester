@@ -352,7 +352,7 @@ func (c *ContractInvoker) waitForTx(ctx context.Context, hash string) error {
 				return nil
 			case "FAILED":
 				return fmt.Errorf("%w: hash %s", ErrTxFailed, hash)
-			// "NOT_FOUND" means still pending — keep polling
+				// "NOT_FOUND" means still pending — keep polling
 			}
 		}
 	}
@@ -710,7 +710,6 @@ func (c *ContractInvoker) QueryWithI128Arg(ctx context.Context, contractAddress,
 
 	return parsed, nil
 }
-
 
 // AllocationWeightEntry is a single protocol weight for on-chain set_weights.
 type AllocationWeightEntry struct {

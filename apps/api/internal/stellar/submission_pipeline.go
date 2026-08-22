@@ -30,20 +30,20 @@ const (
 )
 
 type ChainSubmission struct {
-	ID               uuid.UUID
-	SourceAccount    string
-	SequenceNumber   int64
-	TransactionHash  string
-	SignedEnvelope   string
-	Status           SubmissionStatus
-	JobID            *uuid.UUID
-	DomainAction     string
-	SubmittedAt      *time.Time
-	ConfirmedAt      *time.Time
-	ErrorMessage     *string
-	RetryCount       int
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID              uuid.UUID
+	SourceAccount   string
+	SequenceNumber  int64
+	TransactionHash string
+	SignedEnvelope  string
+	Status          SubmissionStatus
+	JobID           *uuid.UUID
+	DomainAction    string
+	SubmittedAt     *time.Time
+	ConfirmedAt     *time.Time
+	ErrorMessage    *string
+	RetryCount      int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type SubmissionPipeline struct {

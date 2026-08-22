@@ -168,8 +168,8 @@ func (p *Policy) Evaluate(i *Intent, now time.Time) error {
 // documented rather than papered over. A multi-replica deployment needs a
 // shared store; the interface here is deliberately small enough to swap.
 type ReplayGuard struct {
-	mu       sync.Mutex
-	seen     map[string]time.Time
+	mu        sync.Mutex
+	seen      map[string]time.Time
 	retention time.Duration
 	// lastSweep bounds how often the expiry sweep runs, so a burst of intents
 	// does not walk the whole map on every call.

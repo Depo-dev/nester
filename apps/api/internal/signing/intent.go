@@ -158,18 +158,18 @@ type Intent struct {
 type Rejection string
 
 const (
-	RejectUnknownOperation  Rejection = "unknown_operation"
-	RejectShapeMismatch     Rejection = "shape_mismatch"
+	RejectUnknownOperation   Rejection = "unknown_operation"
+	RejectShapeMismatch      Rejection = "shape_mismatch"
 	RejectContractNotAllowed Rejection = "contract_not_allowed"
-	RejectNetworkMismatch   Rejection = "network_mismatch"
-	RejectInvalidAddress    Rejection = "invalid_address"
-	RejectAmountOutOfPolicy Rejection = "amount_out_of_policy"
-	RejectWeightsInvalid    Rejection = "weights_invalid"
-	RejectIntentExpired     Rejection = "intent_expired"
-	RejectIntentReplayed    Rejection = "intent_replayed"
-	RejectMalformed         Rejection = "malformed"
-	RejectKillSwitchActive  Rejection = "kill_switch_active"
-	RejectUnauthorized      Rejection = "unauthorized"
+	RejectNetworkMismatch    Rejection = "network_mismatch"
+	RejectInvalidAddress     Rejection = "invalid_address"
+	RejectAmountOutOfPolicy  Rejection = "amount_out_of_policy"
+	RejectWeightsInvalid     Rejection = "weights_invalid"
+	RejectIntentExpired      Rejection = "intent_expired"
+	RejectIntentReplayed     Rejection = "intent_replayed"
+	RejectMalformed          Rejection = "malformed"
+	RejectKillSwitchActive   Rejection = "kill_switch_active"
+	RejectUnauthorized       Rejection = "unauthorized"
 )
 
 // PolicyError is returned when an intent fails validation. It carries a stable
