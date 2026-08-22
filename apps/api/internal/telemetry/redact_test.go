@@ -3,6 +3,7 @@ package telemetry
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // The literals in this file are syntactically valid but deliberately fake.
@@ -117,5 +118,105 @@ func TestSafeAttributeRedactsBySensitiveValue(t *testing.T) {
 	attr := SafeAttribute("stellar.address", fakeStellarSecret)
 	if strings.Contains(attr.Value.AsString(), fakeStellarSecret) {
 		t.Fatalf("SafeAttribute leaked a secret seed: %q", attr.Value.AsString())
+	}
+}
+
+// --- Regression tests for leaks found reviewing the first implementation ---
+
+// A secret glued to adjacent text (a DSN, an interpolated error string) has no
+// word boundary around it. The original \b-anchored patterns silently failed
+// to match these, exporting the secret whole.
+func TestRedactValueStripsUnanchoredSecrets(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		secret string
+	}{
+		{"seed glued to key=value", "secret=" + fakeStellarSecret + "trailing", fakeStellarSecret},
+		{"seed inside a URL", "https://x.test/cb?s=" + fakeStellarSecret + "&next=1", fakeStellarSecret},
+		{"jwt glued to text", "token:" + fakeJWT + "|end", fakeJWT},
+		{"anthropic key glued", "key=" + fakeAnthropicKey + ";", fakeAnthropicKey},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RedactValue(tc.input)
+			if strings.Contains(got, tc.secret) {
+				t.Fatalf("unanchored secret survived redaction: %q", got)
+			}
+		})
+	}
+}
+
+// Truncation must never emit a usable prefix of an opaque credential. A long
+// high-entropy run straddling the cut is redacted whole instead.
+func TestTruncationDoesNotEmitPartialSecret(t *testing.T) {
+	padding := strings.Repeat("a", maxAttributeLen-20)
+	unknownCredential := strings.Repeat("Xq7", 30) // 90 chars, no named pattern
+	got := RedactValue(padding + unknownCredential)
+
+	if strings.Contains(got, unknownCredential[:30]) {
+		t.Fatalf("truncation exported a partial credential: %q", got)
+	}
+	if got != RedactedPlaceholder {
+		t.Errorf("expected whole-value redaction, got %q", got)
+	}
+}
+
+// Truncating at a raw byte offset can split a multi-byte rune and yield
+// invalid UTF-8, which corrupts the attribute on export.
+func TestTruncationPreservesUTF8(t *testing.T) {
+	got := RedactValue(strings.Repeat("é", 200))
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncation produced invalid UTF-8: %q", got)
+	}
+}
+
+// An exempt suffix must not excuse a key that a stronger rule already
+// rejected, or a sensitive key could ride "..._tokens" past every check.
+func TestSensitiveKeyExceptionsCannotBypassOtherRules(t *testing.T) {
+	bypassAttempts := []string{
+		"secret.input_tokens",
+		"operator_secret.token_count",
+		"db.statement.max_tokens",
+		"authorization.total_tokens",
+		"private_key.output_tokens",
+	}
+	for _, key := range bypassAttempts {
+		if !IsSensitiveKey(key) {
+			t.Errorf("IsSensitiveKey(%q) = false; exempt suffix bypassed a stronger rule", key)
+		}
+	}
+
+	// The legitimate exceptions must still work.
+	for _, key := range []string{"anthropic.input_tokens", "anthropic.output_tokens", "llm.token_count"} {
+		if IsSensitiveKey(key) {
+			t.Errorf("IsSensitiveKey(%q) = true; token counts must remain recordable", key)
+		}
+	}
+}
+
+// The canonical parameterised-SQL keys are permitted, but every derived
+// statement key must still be rejected — db.statement.parameters is precisely
+// the interpolated-value leak #1054 forbids.
+func TestStatementKeyPolicy(t *testing.T) {
+	allowed := []string{"db.statement", "db.query.text", "DB.Statement"}
+	for _, key := range allowed {
+		if IsSensitiveKey(key) {
+			t.Errorf("IsSensitiveKey(%q) = true; parameterised SQL must be recordable", key)
+		}
+	}
+
+	rejected := []string{
+		"db.statement.parameters",
+		"db.statement.rendered",
+		"db.statement.max_tokens",
+		"db.query.text.parameters",
+		"db.statement_values",
+	}
+	for _, key := range rejected {
+		if !IsSensitiveKey(key) {
+			t.Errorf("IsSensitiveKey(%q) = false; derived statement keys must be rejected", key)
+		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -38,24 +39,38 @@ const maxAttributeLen = 256
 const RedactedPlaceholder = "[REDACTED]"
 
 var (
+	// None of these patterns use \b anchors. A secret is frequently glued to
+	// surrounding text with no word boundary — "secret=SB...", a DSN, an
+	// interpolated error string — and an anchored pattern silently fails to
+	// match those, which is the worst possible failure mode for a redactor.
+	// Matching unanchored costs an occasional over-redaction and is the right
+	// trade for a financial application.
+
 	// stellarSecretPattern matches a Stellar secret seed. StrKey seeds are
 	// base32, start with 'S', and are 56 characters long. Matching this on any
 	// value bound for a span is a backstop against an operator secret being
 	// passed where a public address was expected.
-	stellarSecretPattern = regexp.MustCompile(`\bS[A-Z2-7]{55}\b`)
+	stellarSecretPattern = regexp.MustCompile(`S[A-Z2-7]{55}`)
 
 	// jwtPattern matches a three-segment JSON Web Token.
-	jwtPattern = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*`)
+	jwtPattern = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*`)
 
 	// bearerPattern matches an Authorization header value.
-	bearerPattern = regexp.MustCompile(`(?i)\b(bearer|basic)\s+\S+`)
+	bearerPattern = regexp.MustCompile(`(?i)(bearer|basic)\s+\S+`)
 
 	// anthropicKeyPattern matches an Anthropic API key.
-	anthropicKeyPattern = regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_-]+`)
+	anthropicKeyPattern = regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]+`)
 
 	// genericKeyPattern matches common API-key prefixes from the payment
 	// providers this codebase integrates with (Paystack, Flutterwave, Stripe).
-	genericKeyPattern = regexp.MustCompile(`\b(sk|pk|rk)_(live|test)_[A-Za-z0-9]+`)
+	genericKeyPattern = regexp.MustCompile(`(sk|pk|rk)_(live|test)_[A-Za-z0-9]+`)
+
+	// highEntropyPattern is the last line of defence for truncation. A long
+	// base32/base64-ish run that survived every named pattern may still be a
+	// credential shape this code does not yet know about; if such a run would
+	// be cut by truncation it is redacted whole rather than exported as a
+	// partial secret. See truncate.
+	highEntropyPattern = regexp.MustCompile(`[A-Za-z0-9_\-+/=]{40,}`)
 )
 
 // sensitiveKeyFragments name attribute keys whose values are never safe to
@@ -83,6 +98,20 @@ var sensitiveKeyFragments = []string{
 	"parameter",
 	"binding",
 	"arg_value",
+	"statement",
+}
+
+// canonicalStatementKeys are the exact OTel semantic-convention keys allowed
+// to carry SQL text, and only ever *parameterised* text with placeholders
+// left intact — never interpolated values. They are exempted from the
+// "statement" fragment rule by exact match, so that any other
+// statement-shaped key (db.statement.parameters, db.statement.rendered, a
+// bound-parameter variant) is still rejected. The instrumentation that writes
+// these keys is responsible for passing parameterised SQL; this list only
+// governs whether the key itself is permitted at all.
+var canonicalStatementKeys = []string{
+	"db.statement",
+	"db.query.text",
 }
 
 // safeKeyExceptions are keys that a fragment rule would otherwise reject but
@@ -100,19 +129,22 @@ var safeKeyExceptions = []string{
 
 // IsSensitiveKey reports whether an attribute key names a value that must
 // never be exported.
+//
+// Ordering matters. The fragment rules are evaluated first and win outright:
+// an exception may only ever excuse the "token" rule, never any other. This
+// prevents a key such as "operator_secret.token_count" or
+// "db.statement.max_tokens" from riding an exempt suffix past a rule that
+// would otherwise have rejected it.
 func IsSensitiveKey(key string) bool {
 	lower := strings.ToLower(key)
 
-	for _, exception := range safeKeyExceptions {
-		if lower == exception || strings.HasSuffix(lower, "."+exception) {
+	// Exact-match allowance for the canonical parameterised-SQL keys. This is
+	// checked first and only ever matches the whole key, so derived keys such
+	// as "db.statement.parameters" fall through to the fragment rules below.
+	for _, allowed := range canonicalStatementKeys {
+		if lower == allowed {
 			return false
 		}
-	}
-
-	// "token" is handled separately from the fragment list so the exceptions
-	// above can carve out token counts without also weakening the other rules.
-	if strings.Contains(lower, "token") {
-		return true
 	}
 
 	for _, fragment := range sensitiveKeyFragments {
@@ -120,7 +152,19 @@ func IsSensitiveKey(key string) bool {
 			return true
 		}
 	}
-	return false
+
+	if !strings.Contains(lower, "token") {
+		return false
+	}
+
+	// The key contains "token" and nothing else disqualified it, so a token
+	// *count* exception may apply.
+	for _, exception := range safeKeyExceptions {
+		if lower == exception || strings.HasSuffix(lower, "."+exception) {
+			return false
+		}
+	}
+	return true
 }
 
 // RedactValue strips secret material from a free-form string and truncates it.
@@ -134,6 +178,14 @@ func RedactValue(value string) string {
 		return ""
 	}
 
+	// Attribute values must be valid UTF-8: OTLP is protobuf, whose string
+	// fields require it, and an invalid byte sequence corrupts the attribute
+	// on export. Input can be arbitrary — an error string wrapping a raw
+	// network read, a byte slice rendered with %s — so coerce it here rather
+	// than trusting callers. ToValidUTF8 replaces bad sequences in place,
+	// preserving offsets for the patterns below.
+	value = strings.ToValidUTF8(value, "")
+
 	redacted := stellarSecretPattern.ReplaceAllString(value, RedactedPlaceholder)
 	redacted = jwtPattern.ReplaceAllString(redacted, RedactedPlaceholder)
 	redacted = bearerPattern.ReplaceAllString(redacted, RedactedPlaceholder)
@@ -141,6 +193,18 @@ func RedactValue(value string) string {
 	redacted = genericKeyPattern.ReplaceAllString(redacted, RedactedPlaceholder)
 
 	return truncate(redacted)
+}
+
+// splitsHighEntropyRun reports whether cutting value at limit would land in
+// the middle of a long opaque run. Such a cut would export a partial
+// credential, which is both a disclosure and useless for debugging.
+func splitsHighEntropyRun(value string, limit int) bool {
+	for _, loc := range highEntropyPattern.FindAllStringIndex(value, -1) {
+		if loc[0] < limit && loc[1] > limit {
+			return true
+		}
+	}
+	return false
 }
 
 // SafeAttribute builds a string attribute with the key policy and value
@@ -202,9 +266,24 @@ func errorTypeName(err error) string {
 }
 
 // truncate bounds a value's length, appending an ellipsis when it was cut.
+//
+// Two hazards are handled. First, cutting mid-run of a long opaque token would
+// export a usable prefix of a credential that the named patterns did not
+// recognise, so such a value is redacted entirely instead. Second, cutting at
+// an arbitrary byte offset can split a multi-byte rune and produce invalid
+// UTF-8, so the cut is moved back to a rune boundary.
 func truncate(value string) string {
 	if len(value) <= maxAttributeLen {
 		return value
 	}
-	return value[:maxAttributeLen] + "..."
+
+	if splitsHighEntropyRun(value, maxAttributeLen) {
+		return RedactedPlaceholder
+	}
+
+	cut := maxAttributeLen
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return value[:cut] + "..."
 }
