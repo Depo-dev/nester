@@ -10,10 +10,15 @@ import (
 	"strconv"
 	"time"
 
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+
+	"github.com/suncrestlabs/nester/apps/api/internal/telemetry"
 )
 
 var (
@@ -48,21 +53,38 @@ func NewContractInvoker(rpcURL, horizonURL, networkPassphrase, operatorSecret st
 
 // InvokeVoidFunction calls a contract function with signature (caller: Address).
 func (c *ContractInvoker) InvokeVoidFunction(ctx context.Context, contractAddress, functionName string) error {
+	ctx, span := startContractSpan(ctx, "invoke", contractAddress, functionName)
+	defer span.End()
+
 	hash, err := c.InvokeVoidFunctionSubmit(ctx, contractAddress, functionName)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
-	return c.waitForTx(ctx, hash)
+	recordTxHash(span, hash)
+
+	if err := c.waitForTx(ctx, hash); err != nil {
+		telemetry.RecordError(span, err)
+		return err
+	}
+	return nil
 }
 
 // SimulateVoidFunction dry-runs a (caller: Address) contract call without submitting.
 func (c *ContractInvoker) SimulateVoidFunction(ctx context.Context, contractAddress, functionName string) error {
+	ctx, span := startContractSpan(ctx, "simulate", contractAddress, functionName)
+	defer span.End()
+
 	txB64, err := c.buildUnsignedVoidInvoke(ctx, contractAddress, functionName)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
-	_, err = c.simulate(ctx, txB64)
-	return err
+	if _, err = c.simulate(ctx, txB64); err != nil {
+		telemetry.RecordError(span, err)
+		return err
+	}
+	return nil
 }
 
 // InvokeVoidFunctionSubmit simulates, signs, and submits a void contract call.
@@ -233,23 +255,39 @@ type rpcResponse[T any] struct {
 }
 
 func (c *ContractInvoker) rpcCall(ctx context.Context, method string, params, result any) error {
+	// One span per JSON-RPC round trip so the trace waterfall separates
+	// simulate, submit, and each poll of getTransaction. Neither params nor
+	// the response body is recorded: both carry transaction XDR.
+	ctx, span := startRPCSpan(ctx, method)
+	defer span.End()
+
 	body, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: params})
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.rpcURL, bytes.NewReader(body))
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("rpc %s: %w", method, err)
+		wrapped := fmt.Errorf("rpc %s: %w", method, err)
+		telemetry.RecordError(span, wrapped)
+		return wrapped
 	}
 	defer resp.Body.Close()
 
-	return json.NewDecoder(resp.Body).Decode(result)
+	span.SetAttributes(semconv.HTTPResponseStatusCode(resp.StatusCode))
+
+	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+		telemetry.RecordError(span, err)
+		return err
+	}
+	return nil
 }
 
 func (c *ContractInvoker) simulate(ctx context.Context, txB64 string) (simulateResult, error) {
@@ -296,12 +334,14 @@ func (c *ContractInvoker) waitForTx(ctx context.Context, hash string) error {
 			if resp.Error != nil {
 				return fmt.Errorf("getTransaction: %s", resp.Error.Message)
 			}
+			recordTxStatus(trace.SpanFromContext(ctx), resp.Result.Status)
+
 			switch resp.Result.Status {
 			case "SUCCESS":
 				return nil
 			case "FAILED":
 				return fmt.Errorf("%w: hash %s", ErrTxFailed, hash)
-			// "NOT_FOUND" means still pending — keep polling
+				// "NOT_FOUND" means still pending — keep polling
 			}
 		}
 	}
@@ -632,7 +672,6 @@ func (c *ContractInvoker) QueryWithI128Arg(ctx context.Context, contractAddress,
 
 	return parsed, nil
 }
-
 
 // AllocationWeightEntry is a single protocol weight for on-chain set_weights.
 type AllocationWeightEntry struct {

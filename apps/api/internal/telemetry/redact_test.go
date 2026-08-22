@@ -220,3 +220,38 @@ func TestStatementKeyPolicy(t *testing.T) {
 		}
 	}
 }
+
+// Soroban RPC echoes base64 XDR back inside error messages. A signed envelope
+// embeds the operator signature and every operation argument, so it must never
+// reach a span — while the public identifiers an operator needs must survive.
+func TestRedactValueStripsTransactionXDR(t *testing.T) {
+	xdrs := []string{
+		"AAAAAQAAAAEAAAAHc2VjcmV0eA==",
+		"AAAAAAAAAAIAAAAGAAAAAcm5X2Nvb2tpZXh4eHhBQkNERUZHSElKS0xNTk9Q",
+		"AAAAAgAAAAB6/vNBmDVDPWCFvOdA6bnKzHRLFcCnPeSDdMSlfpEeqQ==",
+	}
+	for _, xdr := range xdrs {
+		got := RedactValue("soroban simulate failed: " + xdr)
+		if strings.Contains(got, xdr) {
+			t.Errorf("XDR survived redaction: %q", got)
+		}
+	}
+}
+
+// The XDR rules must not destroy the public identifiers the Soroban spans are
+// required to carry. Length cannot separate these from XDR, so the alphabet
+// distinction is load-bearing and worth pinning down.
+func TestRedactValuePreservesChainIdentifiers(t *testing.T) {
+	identifiers := []string{
+		"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",         // contract ID
+		"G" + "A5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",         // public address
+		"a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801", // tx hash
+		"9f3ab2c1-0000-4000-8000-000000000000",                             // uuid
+		"GET /api/v1/users/{id}/savings-goals",                             // route pattern
+	}
+	for _, id := range identifiers {
+		if got := RedactValue(id); got != id {
+			t.Errorf("RedactValue(%q) = %q; chain identifiers must survive", id, got)
+		}
+	}
+}

@@ -65,6 +65,27 @@ var (
 	// providers this codebase integrates with (Paystack, Flutterwave, Stripe).
 	genericKeyPattern = regexp.MustCompile(`(sk|pk|rk)_(live|test)_[A-Za-z0-9]+`)
 
+	// xdrPattern matches a base64-encoded XDR blob, the wire format for
+	// Stellar transactions. A signed envelope embeds the operator's signature
+	// and every operation argument — amounts, destinations, contract
+	// parameters — so an XDR echoed back inside an RPC error message must not
+	// reach a span. Soroban RPC does exactly that on a failed simulation.
+	//
+	// Length alone cannot distinguish XDR from the identifiers that must
+	// survive: a contract ID and a public address are both 56 characters and a
+	// transaction hash is 64, so any length-based rule either destroys them or
+	// misses a short XDR. What separates them is the alphabet. StrKey is
+	// base32 (uppercase plus digits 2-7) and a hash is hex (single case), so
+	// neither can carry '+', '/', '=' padding, or a mix of upper and lower
+	// case. These rules key on those base64-only markers.
+	xdrPaddedPattern = regexp.MustCompile(`[A-Za-z0-9+/]{16,}={1,2}`)
+	xdrSymbolPattern = regexp.MustCompile(`[A-Za-z0-9+/]*[+/][A-Za-z0-9+/]{23,}`)
+
+	// base64RunPattern finds long opaque runs; runMixesCase then decides
+	// whether the run is base64 (both cases present) rather than a StrKey or
+	// a hex digest.
+	base64RunPattern = regexp.MustCompile(`[A-Za-z0-9+/]{40,}`)
+
 	// highEntropyPattern is the last line of defence for truncation. A long
 	// base32/base64-ish run that survived every named pattern may still be a
 	// credential shape this code does not yet know about; if such a run would
@@ -191,8 +212,47 @@ func RedactValue(value string) string {
 	redacted = bearerPattern.ReplaceAllString(redacted, RedactedPlaceholder)
 	redacted = anthropicKeyPattern.ReplaceAllString(redacted, RedactedPlaceholder)
 	redacted = genericKeyPattern.ReplaceAllString(redacted, RedactedPlaceholder)
+	redacted = redactXDR(redacted)
 
 	return truncate(redacted)
+}
+
+// redactXDR removes base64-encoded transaction envelopes.
+//
+// Soroban RPC echoes XDR back inside error messages (a failed simulation, a
+// rejected submission), and a signed envelope embeds the operator signature
+// and every operation argument — amounts, destinations, contract parameters.
+// None of that may reach a trace backend.
+func redactXDR(value string) string {
+	value = xdrPaddedPattern.ReplaceAllString(value, RedactedPlaceholder)
+	value = xdrSymbolPattern.ReplaceAllString(value, RedactedPlaceholder)
+
+	// Unpadded, symbol-free base64 is distinguished from a StrKey or a hex
+	// digest by containing both upper and lower case.
+	return base64RunPattern.ReplaceAllStringFunc(value, func(run string) string {
+		if runMixesCase(run) {
+			return RedactedPlaceholder
+		}
+		return run
+	})
+}
+
+// runMixesCase reports whether s contains both an upper- and a lower-case
+// ASCII letter, which a base32 StrKey or a hex digest never does.
+func runMixesCase(s string) bool {
+	var hasUpper, hasLower bool
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c >= 'A' && c <= 'Z':
+			hasUpper = true
+		case c >= 'a' && c <= 'z':
+			hasLower = true
+		}
+		if hasUpper && hasLower {
+			return true
+		}
+	}
+	return false
 }
 
 // splitsHighEntropyRun reports whether cutting value at limit would land in
