@@ -19,21 +19,21 @@ const (
 )
 
 var (
-	ErrVaultNotFound           = errors.New("vault not found")
-	ErrUserNotFound            = errors.New("user not found")
-	ErrInvalidVault            = errors.New("invalid vault input")
-	ErrInvalidAmount           = errors.New("amount must be greater than zero")
-	ErrInvalidAllocation       = errors.New("invalid allocation input")
-	ErrInvalidPrecision        = errors.New("decimal precision exceeds supported scale")
-	ErrInvalidTransition       = errors.New("invalid vault status transition")
-	ErrVaultClosed             = errors.New("vault is closed")
-	ErrVaultNotActive          = errors.New("vault is not active")
-	ErrInsufficientBalance     = errors.New("vault balance must be zero before closing")
-	ErrVaultForbidden          = errors.New("vault does not belong to caller")
-	ErrAllocationNotFound      = errors.New("allocation not found")
-	ErrAllocationHasBalance    = errors.New("allocation has non-zero balance; set force=true to remove")
-	ErrDuplicateProtocol       = errors.New("protocol already allocated")
-	ErrBelowMinDeposit         = errors.New("deposit amount is below the minimum required for this protocol")
+	ErrVaultNotFound        = errors.New("vault not found")
+	ErrUserNotFound         = errors.New("user not found")
+	ErrInvalidVault         = errors.New("invalid vault input")
+	ErrInvalidAmount        = errors.New("amount must be greater than zero")
+	ErrInvalidAllocation    = errors.New("invalid allocation input")
+	ErrInvalidPrecision     = errors.New("decimal precision exceeds supported scale")
+	ErrInvalidTransition    = errors.New("invalid vault status transition")
+	ErrVaultClosed          = errors.New("vault is closed")
+	ErrVaultNotActive       = errors.New("vault is not active")
+	ErrInsufficientBalance  = errors.New("vault balance must be zero before closing")
+	ErrVaultForbidden       = errors.New("vault does not belong to caller")
+	ErrAllocationNotFound   = errors.New("allocation not found")
+	ErrAllocationHasBalance = errors.New("allocation has non-zero balance; set force=true to remove")
+	ErrDuplicateProtocol    = errors.New("protocol already allocated")
+	ErrBelowMinDeposit      = errors.New("deposit amount is below the minimum required for this protocol")
 	ErrInvalidHarvestFrequency = errors.New("harvest frequency must be 'daily' or 'weekly'")
 	// ErrDuplicateTransaction is returned when a deposit/withdrawal insert
 	// collides with vault_transactions' UNIQUE transaction_hash index. A
@@ -81,23 +81,23 @@ type Vault struct {
 	// SoftCapacity is an optional maximum deposit limit. When nil, no capacity
 	// limit is enforced. When set, deposits that would push CurrentBalance over
 	// this limit are rejected with ErrCapacityExceeded.
-	SoftCapacity *decimal.Decimal `json:"soft_capacity,omitempty"`
+	SoftCapacity        *decimal.Decimal `json:"soft_capacity,omitempty"`
 	// CapacityWarningPct is the percentage threshold at which capacity warnings
 	// are surfaced. Defaults to DefaultCapacityWarningThreshold (80%) when nil.
-	CapacityWarningPct *float64 `json:"capacity_warning_pct,omitempty"`
+	CapacityWarningPct  *float64         `json:"capacity_warning_pct,omitempty"`
 	// HarvestFrequency controls how often the harvest engine will consider this
 	// vault for a harvest: "daily" or "weekly". Defaults to
 	// DefaultHarvestFrequency when empty.
-	HarvestFrequency string `json:"harvest_frequency"`
+	HarvestFrequency    string           `json:"harvest_frequency"`
 	// LastHarvestedAt is when the vault's yield was last harvested, used by the
 	// harvest engine to enforce HarvestFrequency. Nil means never harvested.
-	LastHarvestedAt    *time.Time   `json:"last_harvested_at,omitempty"`
-	LastSyncedAt       *time.Time   `json:"last_synced_at,omitempty"`
-	LastAPYAlertSentAt *time.Time   `json:"last_apy_alert_sent_at,omitempty"`
-	DeletedAt          *time.Time   `json:"deleted_at,omitempty"`
-	Allocations        []Allocation `json:"allocations,omitempty"`
-	CreatedAt          time.Time    `json:"created_at"`
-	UpdatedAt          time.Time    `json:"updated_at"`
+	LastHarvestedAt     *time.Time       `json:"last_harvested_at,omitempty"`
+	LastSyncedAt        *time.Time       `json:"last_synced_at,omitempty"`
+	LastAPYAlertSentAt  *time.Time       `json:"last_apy_alert_sent_at,omitempty"`
+	DeletedAt           *time.Time       `json:"deleted_at,omitempty"`
+	Allocations         []Allocation     `json:"allocations,omitempty"`
+	CreatedAt           time.Time        `json:"created_at"`
+	UpdatedAt           time.Time        `json:"updated_at"`
 }
 
 type ProjectionPoint struct {
@@ -127,23 +127,23 @@ type Allocation struct {
 // the vault_transactions table.
 // HarvestRecordInput captures ledger updates after a successful harvest.
 type HarvestRecordInput struct {
-	VaultID         uuid.UUID
-	UserID          uuid.UUID
-	NetYield        decimal.Decimal
-	PerformanceFee  decimal.Decimal
-	Compounded      bool
-	NewSharesMinted *decimal.Decimal
-	TransactionHash string
+	VaultID              uuid.UUID
+	UserID               uuid.UUID
+	NetYield             decimal.Decimal
+	PerformanceFee       decimal.Decimal
+	Compounded           bool
+	NewSharesMinted      *decimal.Decimal
+	TransactionHash      string
 }
 
 // RebalanceRecordInput captures the details of a rebalance transaction
 type RebalanceRecordInput struct {
-	VaultID         uuid.UUID
-	UserID          uuid.UUID
-	FromProtocol    string
-	ToProtocol      string
-	Amount          decimal.Decimal
-	TransactionHash string
+	VaultID              uuid.UUID
+	UserID               uuid.UUID
+	FromProtocol         string
+	ToProtocol           string
+	Amount               decimal.Decimal
+	TransactionHash      string
 }
 
 type VaultTransaction struct {
