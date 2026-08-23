@@ -26,6 +26,7 @@ from app.routers import (
     tool_actions,
     ws_chat,
 )
+from app.telemetry import setup_tracing
 
 
 class RequestIDFormatter(logging.Formatter):
@@ -60,6 +61,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Nester Intelligence", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_middleware(RequestIDMiddleware)
+
+# Distributed tracing (nester#1054). Opt-in via INTELLIGENCE_TRACING_ENABLED;
+# a no-op when disabled. Installed here so the FastAPI instrumentation wraps
+# the fully-constructed app and can extract the inbound traceparent that links
+# this service's spans to the calling Go API's trace. X-Request-ID handling
+# above is untouched — the two identifiers coexist.
+setup_tracing(app)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 
