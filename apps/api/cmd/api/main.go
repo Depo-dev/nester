@@ -22,6 +22,7 @@ import (
 	migratedb "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/suncrestlabs/nester/apps/api/internal/auth"
+	"github.com/suncrestlabs/nester/apps/api/internal/cache"
 	"github.com/suncrestlabs/nester/apps/api/internal/config"
 	cryptopkg "github.com/suncrestlabs/nester/apps/api/internal/crypto"
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/jobqueue"
@@ -41,6 +42,7 @@ import (
 	tvlsvc "github.com/suncrestlabs/nester/apps/api/internal/service/tvl"
 	"github.com/suncrestlabs/nester/apps/api/internal/services"
 	stellarpkg "github.com/suncrestlabs/nester/apps/api/internal/stellar"
+	"github.com/suncrestlabs/nester/apps/api/internal/telemetry"
 	"github.com/suncrestlabs/nester/apps/api/internal/valuation"
 	"github.com/suncrestlabs/nester/apps/api/internal/ws"
 	logpkg "github.com/suncrestlabs/nester/apps/api/pkg/logger"
@@ -75,7 +77,45 @@ func run() error {
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pgPool, err := repository.NewPostgresDB(cfg.Database())
+	// Distributed tracing (#1054). Installed before any dependency is opened
+	// so the pool, cache and HTTP clients below are all created against a
+	// configured provider. Disabled by default: Init then installs a no-op
+	// provider, dials no collector, and every instrumentation call site
+	// becomes a cheap no-op.
+	tracingCfg := cfg.Tracing()
+	_, shutdownTracing, err := telemetry.Init(shutdownCtx, telemetry.Config{
+		Enabled:          tracingCfg.Enabled(),
+		Endpoint:         tracingCfg.OTLPEndpoint(),
+		Insecure:         tracingCfg.OTLPInsecure(),
+		ServiceName:      tracingCfg.ServiceName(),
+		ServiceVersion:   version,
+		Environment:      cfg.Environment(),
+		ExporterTimeout:  tracingCfg.ExporterTimeout(),
+		SampleRatio:      tracingCfg.SampleRatio(),
+		LatencyThreshold: tracingCfg.LatencyThreshold(),
+	}, baseLogger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// Bounded independently of shutdownCtx, which is already cancelled by
+		// the time this runs; without a fresh context the final flush would
+		// abort and drop the spans from the shutdown itself.
+		flushCtx, cancelFlush := context.WithTimeout(context.Background(), tracingCfg.ExporterTimeout())
+		defer cancelFlush()
+		if err := shutdownTracing(flushCtx); err != nil {
+			baseLogger.Warn("tracing shutdown reported an error", "error", err)
+		}
+	}()
+
+	// The traced pool is chosen up front so every repository built from it
+	// emits query spans; NewPostgresDB remains the untraced default.
+	newPool := repository.NewPostgresDB
+	if tracingCfg.Enabled() {
+		newPool = repository.NewPostgresDBTraced
+	}
+
+	pgPool, err := newPool(cfg.Database())
 	if err != nil {
 		return err
 	}
@@ -253,6 +293,8 @@ func run() error {
 	var redisClient *redis.Client
 	if addr := cfg.Redis().Addr(); addr != "" {
 		redisClient = redis.NewClient(&redis.Options{Addr: addr})
+		// Command-name-only spans; keys and values are never recorded.
+		redisClient = cache.InstrumentRedis(redisClient, cfg.Tracing().Enabled())
 	}
 
 	var challengeStore service.ChallengeStore
@@ -1106,7 +1148,12 @@ func run() error {
 										settlementLimiter(
 											walletLimiter(
 												middleware.LimitRequestBody(1 * 1024 * 1024)(
-													middleware.Logging(baseLogger)(mux),
+													middleware.Logging(baseLogger)(
+														middleware.Tracing(
+															cfg.Tracing().ServiceName(),
+															cfg.Tracing().LatencyThreshold(),
+														)(mux),
+													),
 												),
 											),
 										),
