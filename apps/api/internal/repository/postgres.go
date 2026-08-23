@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/suncrestlabs/nester/apps/api/internal/config"
 )
@@ -15,7 +16,27 @@ type PostgresDB struct {
 }
 
 // NewPostgresDB initializes a new PostgreSQL connection pool using pgxpool.
+//
+// Tracing is opt-in via the tracingEnabled argument; see NewPostgresDBTraced.
 func NewPostgresDB(cfg config.DatabaseConfig) (*PostgresDB, error) {
+	return newPostgresDB(cfg, false)
+}
+
+// NewPostgresDBTraced is NewPostgresDB with OpenTelemetry query spans
+// attached (nester#1054).
+//
+// Privacy is the design constraint. otelpgx is configured with
+// WithTrimSQLInSpanName so span names stay low-cardinality, and crucially
+// *without* IncludeQueryParameters — pgx would otherwise attach every bound
+// argument to the span, and in this codebase those are account numbers,
+// balances, wallet addresses and amounts. The parameterised SQL text is
+// recorded (placeholders intact), which is what identifies a slow query
+// without disclosing whose data it ran against.
+func NewPostgresDBTraced(cfg config.DatabaseConfig) (*PostgresDB, error) {
+	return newPostgresDB(cfg, true)
+}
+
+func newPostgresDB(cfg config.DatabaseConfig, tracingEnabled bool) (*PostgresDB, error) {
 	poolConfig, err := pgxpool.ParseConfig(cfg.DSN())
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse database config: %w", err)
@@ -29,6 +50,14 @@ func NewPostgresDB(cfg config.DatabaseConfig) (*PostgresDB, error) {
 	poolConfig.MaxConnIdleTime = 5 * time.Minute
 	poolConfig.MaxConnLifetime = time.Hour
 	poolConfig.HealthCheckPeriod = poolConfig.MaxConnIdleTime
+
+	if tracingEnabled {
+		// IncludeQueryParameters is deliberately not set: bound parameters
+		// are user financial data and must never reach a span.
+		poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(
+			otelpgx.WithTrimSQLInSpanName(),
+		)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ConnectionTimeout())
 	defer cancel()
