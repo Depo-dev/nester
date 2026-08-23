@@ -531,17 +531,20 @@ tests:
   - interval: 1m
     name: indexer falling behind pages
     input_series:
+      # Flat rather than a ramp. The behaviour under test is "lag above 60
+      # pages after for: 5m"; a climbing series would additionally make the
+      # asserted annotation depend on which sample is current at eval time,
+      # which tests promtool's sample alignment rather than the alert.
       - series: 'nester_indexer_lag_ledgers'
-        values: '0+10x30'       # climbing: 60 ledgers reached at t=6m
+        values: '150x30'
       - series: 'nester_indexer_lag_last_sample_age_seconds'
         values: '0x30'
     alert_rule_test:
-      # At 6m lag is exactly 60, which is not > 60, so nothing yet.
-      - eval_time: 6m
+      # Over threshold from t=0, but `for: 5m` holds it pending until 5m.
+      - eval_time: 4m
         alertname: IndexerLagHigh
         exp_alerts: []
-      # Crosses 60 at 7m, then `for: 5m` puts the page at 12m.
-      - eval_time: 13m
+      - eval_time: 10m
         alertname: IndexerLagHigh
         exp_alerts:
           - exp_labels:
@@ -549,11 +552,23 @@ tests:
               slo: balance_freshness
               service: api
             exp_annotations:
-              # 130: the gauge series is 0+10x30, so at t=13m it reads 130.
-              summary: "Event indexer 130 ledgers behind the network tip"
-              description: "Indexed ledger is 130 behind the chain tip (~5 minutes at a 5s close interval). Users are seeing stale balances: a deposit that has settled on-chain will not appear in the app until this recovers. Paging because the displayed balance of a savings product being wrong is a trust failure, not a cosmetic one."
+              summary: "Event indexer 150 ledgers behind the network tip"
+              description: "Indexed ledger is 150 behind the chain tip (~5 minutes at a 5s close interval). Users are seeing stale balances: a deposit that has settled on-chain will not appear in the app until this recovers. Paging because the displayed balance of a savings product being wrong is a trust failure, not a cosmetic one."
               dashboard: /d/nester-slo-balance/balance-freshness
               runbook: docs/observability/runbooks/balance-freshness.md
+
+  # Exactly at the threshold must not fire: the expression uses `>`, not `>=`.
+  - interval: 1m
+    name: indexer lag exactly at threshold does not page
+    input_series:
+      - series: 'nester_indexer_lag_ledgers'
+        values: '60x30'
+      - series: 'nester_indexer_lag_last_sample_age_seconds'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: IndexerLagHigh
+        exp_alerts: []
 
   # ---------------------------------------------------------------------------
   # The frozen-gauge case. This is the test that matters most for this SLI.
@@ -567,8 +582,10 @@ tests:
     input_series:
       - series: 'nester_indexer_lag_ledgers'
         values: '3x30'                # looks perfect, forever
+      # Flat at 20 minutes old: unambiguously past the 300s threshold, and the
+      # asserted annotation does not depend on sample alignment.
       - series: 'nester_indexer_lag_last_sample_age_seconds'
-        values: '0+60x30'             # ageing 60s per minute: nothing is updating it
+        values: '1200x30'
     alert_rule_test:
       - eval_time: 20m
         alertname: IndexerLagHigh
@@ -581,7 +598,6 @@ tests:
               slo: balance_freshness
               service: api
             exp_annotations:
-              # 20m: the series is 0+60x30, so at t=20m it reads 1200s.
               summary: "Event indexer has not reported lag for 20m 0s"
               description: "The lag gauge has not been updated in over 5 minutes, so the freshness signal itself is stale. The indexer polls every 6s, so this means it is wedged, erroring, or dead. Critically, the lag gauge may still read healthy — do not trust it. Check nester_indexer_lag_sample_errors_total and the indexer logs."
               dashboard: /d/nester-slo-balance/balance-freshness
