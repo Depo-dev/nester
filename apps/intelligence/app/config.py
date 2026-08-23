@@ -49,11 +49,64 @@ class Settings(BaseSettings):
     # remains coherent.
     history_recent_turns_kept: int = 6
 
+    # --- Distributed tracing (nester#1054) -------------------------------
+    #
+    # Tracing is opt-in and off by default so that neither existing
+    # deployments nor CI acquire a collector dependency. When disabled no
+    # tracer provider is installed and no collector is dialled.
+    tracing_enabled: bool = False
+
+    # Deployment environment reported as deployment.environment.name on every
+    # span. Mirrors the ENVIRONMENT variable the JWT validator reads, so a
+    # single value describes the deployment.
+    environment: str = os.getenv("ENVIRONMENT", "development").lower()
+
+    # OTLP/gRPC collector address. The default targets a collector running
+    # alongside the service, matching the local observability compose profile.
+    otel_exporter_otlp_endpoint: str = "http://localhost:4317"
+
+    # Whether the collector connection skips TLS. True suits local
+    # development; deploy with it false so spans are not shipped in plaintext.
+    otel_exporter_otlp_insecure: bool = True
+
+    # service.name on every span emitted by this process.
+    otel_service_name: str = "nester-intelligence"
+
+    # Bounds a single export round trip to the collector, in seconds.
+    otel_exporter_timeout: int = 10
+
+    # Head-based sampling probability for traces this service roots. Traces
+    # arriving with an upstream sampling decision honour that decision instead
+    # (see build_sampler). Errors and slow requests are retained by the
+    # collector's tail sampler regardless of this value.
+    tracing_sample_ratio: float = 0.05
+
     model_config = SettingsConfigDict(
         env_prefix="INTELLIGENCE_",
         env_file=".env",
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def _validate_tracing_transport(self) -> "Settings":
+        """Reject a plaintext OTLP exporter outside development.
+
+        Spans carry request metadata and must not cross a network
+        unencrypted. The insecure default suits a collector on the same host
+        or compose network; carrying it into a deployed environment would
+        ship telemetry over plaintext gRPC, so it must be set explicitly
+        there.
+        """
+        if (
+            self.tracing_enabled
+            and self.otel_exporter_otlp_insecure
+            and self.environment in {"staging", "production"}
+        ):
+            raise ValueError(
+                "INTELLIGENCE_OTEL_EXPORTER_OTLP_INSECURE must be false when "
+                "tracing is enabled outside development."
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_production_jwt(self) -> "Settings":

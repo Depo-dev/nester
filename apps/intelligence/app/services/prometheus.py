@@ -46,6 +46,7 @@ from app.services.retrieval_source import ApiDataSource
 from app.services.source_citation import RetrievalSource, now_utc
 from app.services.summarization import needs_summarization, summarize_history
 from app.services.vault_context import VaultContextFetcher
+from app.telemetry_llm import async_model_call_span, record_tool_status, tool_round_span
 
 logger = logging.getLogger(__name__)
 
@@ -524,8 +525,19 @@ async def stream_chat(
                 # still send matched tool_results for both.
                 kwargs["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
 
-            async with client.messages.stream(**kwargs) as stream:
+            # The model span wraps the stream in the same `async with` so the
+            # streaming body is unchanged and the span closes on every exit
+            # path, including a client disconnecting mid-stream.
+            async with async_model_call_span(
+                settings.anthropic_model,
+                streaming=True,
+                max_tokens=CHAT_MAX_TOKENS,
+                round_index=rounds,
+            ) as _call, client.messages.stream(**kwargs) as stream:
                 async for text in stream.text_stream:
+                    # Time to first token determines perceived
+                    # responsiveness. Idempotent, so it is safe per chunk.
+                    _call.record_first_token()
                     full_response += text
                     pending += text
                     if len(pending) >= _FLUSH_CHARS + _LEAK_OVERLAP:
@@ -544,6 +556,8 @@ async def stream_chat(
                     yield f"data: {safe_chunk}\n\n"
 
                 final_msg = await stream.get_final_message()
+                _call.record_usage(final_msg)
+                _call.mark_completed()
                 if gov:
                     gov.record_usage(
                         user_id,
@@ -609,7 +623,17 @@ async def stream_chat(
 
                             if not tool.consequential:
                                 try:
-                                    res = await tool.handler(ctx, **args.model_dump())
+                                    # One child span per executed tool, so the
+                                    # trace reads model call -> tool -> result
+                                    # -> next model call. Only the registered
+                                    # tool name is recorded: arguments and
+                                    # results carry account numbers and
+                                    # amounts and are never exported.
+                                    with tool_round_span(
+                                        tool.name, rounds, consequential=False
+                                    ) as _tool_span:
+                                        res = await tool.handler(ctx, **args.model_dump())
+                                        record_tool_status("executed", _tool_span)
                                     await _audit(
                                         user_id=user_id,
                                         request_id=request_id,
@@ -660,6 +684,19 @@ async def stream_chat(
                                         "content": str(e)
                                     })
                             else:
+                                # The proposal path terminates the turn and
+                                # returns to the user for confirmation, so it
+                                # is the round an operator most needs to see
+                                # in a waterfall. Emitted as a point-in-time
+                                # span rather than wrapping the branch, since
+                                # the branch returns out of this generator and
+                                # wrapping it would change control flow. Only
+                                # the tool name and status are recorded.
+                                with tool_round_span(
+                                    tool.name, rounds, consequential=True
+                                ) as _proposal_span:
+                                    record_tool_status("proposed", _proposal_span)
+
                                 proposal_id = str(uuid.uuid4())
                                 if tool.confirmation_template:
                                     confirmation_text = tool.confirmation_template(

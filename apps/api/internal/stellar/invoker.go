@@ -10,10 +10,14 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/stellar/go/keypair"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+
+	"github.com/suncrestlabs/nester/apps/api/internal/telemetry"
 )
 
 var (
@@ -28,41 +32,109 @@ type ContractInvoker struct {
 	rpcURL            string
 	horizonURL        string
 	networkPassphrase string
-	kp                *keypair.Full
-	httpClient        *http.Client
+	// signer applies the operator signature. The invoker builds and simulates
+	// transactions but never holds key material itself — see signer.go and
+	// docs/security/signing-isolation.md.
+	signer          TransactionSigner
+	operatorAddress string
+	httpClient      *http.Client
 }
 
+// NewContractInvoker builds an invoker whose operator key lives in this
+// process. Retained for local development and for deployments that have not
+// split out the signer; NewContractInvokerWithSigner is the isolated form.
 func NewContractInvoker(rpcURL, horizonURL, networkPassphrase, operatorSecret string) (*ContractInvoker, error) {
-	kp, err := keypair.ParseFull(operatorSecret)
+	signer, err := NewLocalSigner(operatorSecret, networkPassphrase)
 	if err != nil {
-		return nil, fmt.Errorf("invalid operator secret: %w", err)
+		return nil, err
 	}
-	return &ContractInvoker{
+	return NewContractInvokerWithSigner(rpcURL, horizonURL, networkPassphrase, signer)
+}
+
+// NewContractInvokerWithSigner builds an invoker that delegates signing to the
+// supplied signer. When that signer is a remote one, this process holds no
+// operator key material at all.
+//
+// A nil signer is permitted and yields a read-only invoker: simulation and
+// query paths work, and any signing attempt fails with ErrNoSigner. That is the
+// correct configuration for deployments that only read chain state.
+func NewContractInvokerWithSigner(rpcURL, horizonURL, networkPassphrase string, signer TransactionSigner) (*ContractInvoker, error) {
+	inv := &ContractInvoker{
 		rpcURL:            rpcURL,
 		horizonURL:        horizonURL,
 		networkPassphrase: networkPassphrase,
-		kp:                kp,
+		signer:            signer,
 		httpClient:        &http.Client{Timeout: 30 * time.Second},
-	}, nil
+	}
+	if signer != nil {
+		inv.operatorAddress = signer.OperatorAddress()
+	}
+	return inv, nil
+}
+
+// requireOperatorAddress returns the address transactions are built against,
+// or an error when no signer is configured.
+func (c *ContractInvoker) requireOperatorAddress() (string, error) {
+	if c.signer == nil || c.operatorAddress == "" {
+		return "", ErrNoSigner
+	}
+	return c.operatorAddress, nil
+}
+
+// signEnvelope delegates to the configured signer, guarding the nil case
+// locally rather than relying on an earlier call in the same function having
+// already checked. Each signing path is then safe on its own terms, so
+// reordering the code above it cannot silently reintroduce a nil dereference.
+func (c *ContractInvoker) signEnvelope(ctx context.Context, req SignRequest) (string, error) {
+	if c.signer == nil {
+		return "", ErrNoSigner
+	}
+	return c.signer.SignEnvelope(ctx, req)
+}
+
+// SetHTTPClient replaces the HTTP client used for outbound calls. It exists so
+// startup can install a metrics-instrumented transport; a nil client is
+// ignored so callers need not branch.
+func (c *ContractInvoker) SetHTTPClient(client *http.Client) {
+	if client != nil {
+		c.httpClient = client
+	}
 }
 
 // InvokeVoidFunction calls a contract function with signature (caller: Address).
 func (c *ContractInvoker) InvokeVoidFunction(ctx context.Context, contractAddress, functionName string) error {
+	ctx, span := startContractSpan(ctx, "invoke", contractAddress, functionName)
+	defer span.End()
+
 	hash, err := c.InvokeVoidFunctionSubmit(ctx, contractAddress, functionName)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
-	return c.waitForTx(ctx, hash)
+	recordTxHash(span, hash)
+
+	if err := c.waitForTx(ctx, hash); err != nil {
+		telemetry.RecordError(span, err)
+		return err
+	}
+	return nil
 }
 
 // SimulateVoidFunction dry-runs a (caller: Address) contract call without submitting.
 func (c *ContractInvoker) SimulateVoidFunction(ctx context.Context, contractAddress, functionName string) error {
+	ctx, span := startContractSpan(ctx, "simulate", contractAddress, functionName)
+	defer span.End()
+
 	txB64, err := c.buildUnsignedVoidInvoke(ctx, contractAddress, functionName)
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
-	_, err = c.simulate(ctx, txB64)
-	return err
+	if _, err = c.simulate(ctx, txB64); err != nil {
+		telemetry.RecordError(span, err)
+		return err
+	}
+	return nil
 }
 
 // InvokeVoidFunctionSubmit simulates, signs, and submits a void contract call.
@@ -81,7 +153,11 @@ func (c *ContractInvoker) buildUnsignedVoidInvoke(ctx context.Context, contractA
 		return "", err
 	}
 
-	callerScAddr, err := accountAddressToXDR(c.kp.Address())
+	operatorAddr, err := c.requireOperatorAddress()
+	if err != nil {
+		return "", err
+	}
+	callerScAddr, err := accountAddressToXDR(operatorAddr)
 	if err != nil {
 		return "", err
 	}
@@ -105,7 +181,7 @@ func (c *ContractInvoker) buildUnsignedVoidInvoke(ctx context.Context, contractA
 		return "", fmt.Errorf("get sequence number: %w", err)
 	}
 
-	sourceAccount := txnbuild.NewSimpleAccount(c.kp.Address(), seq)
+	sourceAccount := txnbuild.NewSimpleAccount(operatorAddr, seq)
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount:        &sourceAccount,
@@ -176,12 +252,18 @@ func (c *ContractInvoker) signVoidInvoke(ctx context.Context, contractAddress, f
 		return "", errors.New("expected a transaction, got fee-bump")
 	}
 
-	signed, err := inner.Sign(c.networkPassphrase, c.kp)
+	// Signing is delegated across the signer boundary. The envelope is fully
+	// built and simulated at this point; the signer re-validates the declared
+	// intent against policy before applying the key.
+	envelopeB64, err := inner.Base64()
 	if err != nil {
-		return "", fmt.Errorf("sign transaction: %w", err)
+		return "", fmt.Errorf("encode transaction for signing: %w", err)
 	}
-
-	return signed.Base64()
+	return c.signEnvelope(ctx, SignRequest{
+		EnvelopeXDR:     envelopeB64,
+		Operation:       functionName,
+		ContractAddress: contractAddress,
+	})
 }
 
 // ── JSON-RPC helpers ──────────────────────────────────────────────────────────
@@ -233,23 +315,39 @@ type rpcResponse[T any] struct {
 }
 
 func (c *ContractInvoker) rpcCall(ctx context.Context, method string, params, result any) error {
+	// One span per JSON-RPC round trip so the trace waterfall separates
+	// simulate, submit, and each poll of getTransaction. Neither params nor
+	// the response body is recorded: both carry transaction XDR.
+	ctx, span := startRPCSpan(ctx, method)
+	defer span.End()
+
 	body, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: params})
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.rpcURL, bytes.NewReader(body))
 	if err != nil {
+		telemetry.RecordError(span, err)
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("rpc %s: %w", method, err)
+		wrapped := fmt.Errorf("rpc %s: %w", method, err)
+		telemetry.RecordError(span, wrapped)
+		return wrapped
 	}
 	defer resp.Body.Close()
 
-	return json.NewDecoder(resp.Body).Decode(result)
+	span.SetAttributes(semconv.HTTPResponseStatusCode(resp.StatusCode))
+
+	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+		telemetry.RecordError(span, err)
+		return err
+	}
+	return nil
 }
 
 func (c *ContractInvoker) simulate(ctx context.Context, txB64 string) (simulateResult, error) {
@@ -296,12 +394,14 @@ func (c *ContractInvoker) waitForTx(ctx context.Context, hash string) error {
 			if resp.Error != nil {
 				return fmt.Errorf("getTransaction: %s", resp.Error.Message)
 			}
+			recordTxStatus(trace.SpanFromContext(ctx), resp.Result.Status)
+
 			switch resp.Result.Status {
 			case "SUCCESS":
 				return nil
 			case "FAILED":
 				return fmt.Errorf("%w: hash %s", ErrTxFailed, hash)
-			// "NOT_FOUND" means still pending — keep polling
+				// "NOT_FOUND" means still pending — keep polling
 			}
 		}
 	}
@@ -310,8 +410,12 @@ func (c *ContractInvoker) waitForTx(ctx context.Context, hash string) error {
 // ── Horizon: account sequence number ─────────────────────────────────────────
 
 func (c *ContractInvoker) getSequenceNumber(ctx context.Context) (int64, error) {
+	operatorAddr, err := c.requireOperatorAddress()
+	if err != nil {
+		return 0, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.horizonURL+"/accounts/"+c.kp.Address(), nil)
+		c.horizonURL+"/accounts/"+operatorAddr, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -337,7 +441,11 @@ func (c *ContractInvoker) getSequenceNumber(ctx context.Context) (int64, error) 
 // PreviewWithdrawNet simulates withdrawal_fee_preview and returns the net
 // assets the user would receive after fees (slippage-safe preview base).
 func (c *ContractInvoker) PreviewWithdrawNet(ctx context.Context, contractAddress string, sharesStroops int64) (int64, error) {
-	callerScAddr, err := accountAddressToXDR(c.kp.Address())
+	operatorAddr, err := c.requireOperatorAddress()
+	if err != nil {
+		return 0, err
+	}
+	callerScAddr, err := accountAddressToXDR(operatorAddr)
 	if err != nil {
 		return 0, err
 	}
@@ -384,12 +492,17 @@ func (c *ContractInvoker) simulateContractFn(
 		},
 	}
 
+	operatorAddr, err := c.requireOperatorAddress()
+	if err != nil {
+		return xdr.ScVal{}, err
+	}
+
 	seq, err := c.getSequenceNumber(ctx)
 	if err != nil {
 		return xdr.ScVal{}, fmt.Errorf("get sequence number: %w", err)
 	}
 
-	sourceAccount := txnbuild.NewSimpleAccount(c.kp.Address(), seq)
+	sourceAccount := txnbuild.NewSimpleAccount(operatorAddr, seq)
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount:        &sourceAccount,
 		IncrementSequenceNum: true,
@@ -446,6 +559,16 @@ func scValAsSymbol(val xdr.ScVal) (string, bool) {
 	return string(*val.Sym), true
 }
 
+// I128ScValToInt64 converts an i128 contract return value to int64, refusing
+// any value that does not fit rather than truncating it.
+//
+// Truncation matters here: these values are stroop amounts on preview and
+// balance paths, and a silently wrapped uint64 becomes a negative amount that
+// downstream arithmetic would treat as real (nester#1035, G115).
+func I128ScValToInt64(val xdr.ScVal) (int64, error) {
+	return i128ScValToInt64(val)
+}
+
 func i128ScValToInt64(val xdr.ScVal) (int64, error) {
 	if val.Type != xdr.ScValTypeScvI128 || val.I128 == nil {
 		return 0, fmt.Errorf("expected i128 value")
@@ -471,7 +594,11 @@ func (c *ContractInvoker) InvokeWithI128Pair(ctx context.Context, contractAddres
 		return err
 	}
 
-	callerScAddr, err := accountAddressToXDR(c.kp.Address())
+	operatorAddr, err := c.requireOperatorAddress()
+	if err != nil {
+		return err
+	}
+	callerScAddr, err := accountAddressToXDR(operatorAddr)
 	if err != nil {
 		return err
 	}
@@ -494,7 +621,7 @@ func (c *ContractInvoker) InvokeWithI128Pair(ctx context.Context, contractAddres
 		return fmt.Errorf("get sequence number: %w", err)
 	}
 
-	sourceAccount := txnbuild.NewSimpleAccount(c.kp.Address(), seq)
+	sourceAccount := txnbuild.NewSimpleAccount(operatorAddr, seq)
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount:        &sourceAccount,
@@ -552,14 +679,19 @@ func (c *ContractInvoker) InvokeWithI128Pair(ctx context.Context, contractAddres
 		return errors.New("expected a transaction, got fee-bump")
 	}
 
-	signed, err := inner.Sign(c.networkPassphrase, c.kp)
+	envelopeB64, err := inner.Base64()
 	if err != nil {
-		return fmt.Errorf("sign transaction: %w", err)
+		return fmt.Errorf("encode transaction for signing: %w", err)
 	}
-
-	signedB64, err := signed.Base64()
+	signedB64, err := c.signEnvelope(ctx, SignRequest{
+		EnvelopeXDR:     envelopeB64,
+		Operation:       functionName,
+		ContractAddress: contractAddress,
+		Arg0:            arg0,
+		Arg1:            arg1,
+	})
 	if err != nil {
-		return fmt.Errorf("encode signed transaction: %w", err)
+		return err
 	}
 
 	hash, err := c.send(ctx, signedB64)
@@ -589,12 +721,17 @@ func (c *ContractInvoker) QueryWithI128Arg(ctx context.Context, contractAddress,
 		},
 	}
 
+	operatorAddr, err := c.requireOperatorAddress()
+	if err != nil {
+		return xdr.ScVal{}, err
+	}
+
 	seq, err := c.getSequenceNumber(ctx)
 	if err != nil {
 		return xdr.ScVal{}, fmt.Errorf("get sequence number: %w", err)
 	}
 
-	sourceAccount := txnbuild.NewSimpleAccount(c.kp.Address(), seq)
+	sourceAccount := txnbuild.NewSimpleAccount(operatorAddr, seq)
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount:        &sourceAccount,
@@ -633,7 +770,6 @@ func (c *ContractInvoker) QueryWithI128Arg(ctx context.Context, contractAddress,
 	return parsed, nil
 }
 
-
 // AllocationWeightEntry is a single protocol weight for on-chain set_weights.
 type AllocationWeightEntry struct {
 	Protocol  string
@@ -647,7 +783,11 @@ func (c *ContractInvoker) InvokeSetWeights(ctx context.Context, contractAddress 
 		return err
 	}
 
-	callerScAddr, err := accountAddressToXDR(c.kp.Address())
+	operatorAddr, err := c.requireOperatorAddress()
+	if err != nil {
+		return err
+	}
+	callerScAddr, err := accountAddressToXDR(operatorAddr)
 	if err != nil {
 		return err
 	}
@@ -745,12 +885,17 @@ func (c *ContractInvoker) invokeHostFunction(ctx context.Context, hostFn xdr.Hos
 }
 
 func (c *ContractInvoker) submitHostFunction(ctx context.Context, hostFn xdr.HostFunction) (string, error) {
+	operatorAddr, err := c.requireOperatorAddress()
+	if err != nil {
+		return "", err
+	}
+
 	seq, err := c.getSequenceNumber(ctx)
 	if err != nil {
 		return "", fmt.Errorf("get sequence number: %w", err)
 	}
 
-	sourceAccount := txnbuild.NewSimpleAccount(c.kp.Address(), seq)
+	sourceAccount := txnbuild.NewSimpleAccount(operatorAddr, seq)
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount:        &sourceAccount,
@@ -808,14 +953,17 @@ func (c *ContractInvoker) submitHostFunction(ctx context.Context, hostFn xdr.Hos
 		return "", errors.New("expected a transaction, got fee-bump")
 	}
 
-	signed, err := inner.Sign(c.networkPassphrase, c.kp)
+	envelopeB64, err := inner.Base64()
 	if err != nil {
-		return "", fmt.Errorf("sign transaction: %w", err)
+		return "", fmt.Errorf("encode transaction for signing: %w", err)
 	}
-
-	signedB64, err := signed.Base64()
+	signedB64, err := c.signEnvelope(ctx, SignRequest{
+		EnvelopeXDR:     envelopeB64,
+		Operation:       hostFunctionName(hostFn),
+		ContractAddress: hostFunctionContract(hostFn),
+	})
 	if err != nil {
-		return "", fmt.Errorf("encode signed transaction: %w", err)
+		return "", err
 	}
 
 	return c.send(ctx, signedB64)
@@ -863,4 +1011,29 @@ func accountAddressToXDR(address string) (xdr.ScAddress, error) {
 		Type:      xdr.ScAddressTypeScAddressTypeAccount,
 		AccountId: &accountID,
 	}, nil
+}
+
+// hostFunctionName extracts the invoked contract function name from a host
+// function, for the signer intent. It returns an empty string for host function
+// types that do not name a function, which the signer treats as an unknown
+// operation and refuses.
+func hostFunctionName(fn xdr.HostFunction) string {
+	if fn.Type != xdr.HostFunctionTypeHostFunctionTypeInvokeContract || fn.InvokeContract == nil {
+		return ""
+	}
+	return string(fn.InvokeContract.FunctionName)
+}
+
+// hostFunctionContract extracts the target contract address from a host
+// function, for the signer intent. It returns an empty string when the host
+// function does not carry a contract address, which the signer refuses.
+func hostFunctionContract(fn xdr.HostFunction) string {
+	if fn.Type != xdr.HostFunctionTypeHostFunctionTypeInvokeContract || fn.InvokeContract == nil {
+		return ""
+	}
+	addr, err := fn.InvokeContract.ContractAddress.String()
+	if err != nil {
+		return ""
+	}
+	return addr
 }
