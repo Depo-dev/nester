@@ -847,7 +847,13 @@ def main() -> None:
         # sort_keys so the committed JSON is stable and a regeneration produces
         # no diff unless something actually changed.
         payload = json.dumps(builder(), indent=2, sort_keys=True) + "\n"
-        path.write_text(payload, encoding="utf-8")
+        # newline="" disables the platform line-ending translation Python
+        # applies by default. Without it this writes CRLF on Windows and LF on
+        # Linux, so the committed files and the CI-regenerated ones differ on
+        # every line and the drift check fails for a reason that has nothing
+        # to do with the dashboards.
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            handle.write(payload)
         print(f"wrote {path.relative_to(OUT_DIR.parent.parent.parent)}")
 
 
