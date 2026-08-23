@@ -58,6 +58,29 @@ func main() {
 	}
 }
 
+// stellarNetworkLabel maps a Stellar network passphrase to a short, stable
+// label for logs. The passphrase is a public chain identifier rather than a
+// credential, but logging it verbatim trips go/clear-text-logging because of
+// the name, and the label is the more useful thing to read in a startup line
+// anyway. An unrecognised network is reported as "custom" so a misconfigured
+// passphrase is never echoed into the log.
+func stellarNetworkLabel(passphrase string) string {
+	switch passphrase {
+	case "Public Global Stellar Network ; September 2015":
+		return "pubnet"
+	case "Test SDF Network ; September 2015":
+		return "testnet"
+	case "Test SDF Future Network ; October 2022":
+		return "futurenet"
+	case "Standalone Network ; February 2017":
+		return "standalone"
+	case "":
+		return "unset"
+	default:
+		return "custom"
+	}
+}
+
 func run() error {
 	startedAt := time.Now()
 
@@ -1233,7 +1256,7 @@ func run() error {
 		"version", version,
 		"horizon_url", cfg.Stellar().HorizonURL(),
 		"rpc_url", cfg.Stellar().RPCURL(),
-		"network_passphrase", cfg.Stellar().NetworkPassphrase(),
+		"network", stellarNetworkLabel(cfg.Stellar().NetworkPassphrase()),
 		"auto_migrate", cfg.Startup().EnableAutoMigrate(),
 	)
 
