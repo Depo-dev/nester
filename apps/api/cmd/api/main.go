@@ -1080,6 +1080,48 @@ func run() error {
 	defer cancelIdempotencyPurge()
 	go runIdempotencyPurge(idempotencyPurgeCtx, idempotencyStore, baseLogger.WithGroup("idempotency-purge"))
 
+	// costQuota meters downstream *work* per authenticated user, where the
+	// limiters above meter request *count* per IP. Both apply: a caller can
+	// sit well inside 100 requests/minute while saturating Anthropic,
+	// DeFiLlama and Soroban RPC, because a relay call and a profile read are
+	// not the same request.
+	//
+	// Placed after the authenticator so it keys by user (falling back to IP
+	// for anything still anonymous), and after idempotencyMiddleware so a
+	// replayed idempotent write — which returns a stored response and calls
+	// nothing downstream — is not charged as though it did.
+	costQuotaLimiter := middleware.NewQuotaLimiter(
+		redisClient,
+		"cost",
+		cfg.RateLimit().QuotaLimit(),
+		cfg.RateLimit().QuotaWindow(),
+		baseLogger.WithGroup("ratelimit-quota"),
+	)
+	if cfg.RateLimit().QuotaBypassToken() != "" && cfg.Environment() == "production" {
+		baseLogger.Warn("RATELIMIT_QUOTA_BYPASS_TOKEN is set in production; " +
+			"any caller holding it can bypass cost quotas entirely")
+	}
+	// A quota below the priciest route makes that route permanently
+	// unreachable: the bucket can never hold enough tokens to pay for one
+	// call, and the Retry-After we hand back would be a lie. Refuse to start
+	// rather than serve an API with a silently dead endpoint.
+	if cfg.RateLimit().QuotaEnabled() && cfg.RateLimit().QuotaLimit() < middleware.MaxRouteCost() {
+		return fmt.Errorf(
+			"RATELIMIT_QUOTA_LIMIT is %d but the most expensive route costs %d; "+
+				"every call to it would be rejected forever",
+			cfg.RateLimit().QuotaLimit(), middleware.MaxRouteCost())
+	}
+	if !cfg.RateLimit().QuotaEnabled() {
+		baseLogger.Warn("cost-weighted rate limit quotas are disabled; " +
+			"expensive routes are bounded only by request-rate limits")
+	}
+	costQuota := middleware.CostQuota(costQuotaLimiter, middleware.QuotaConfig{
+		Enabled:         cfg.RateLimit().QuotaEnabled(),
+		BypassToken:     cfg.RateLimit().QuotaBypassToken(),
+		ExcludePrefixes: []string{"/health", "/healthz", "/readyz", "/metrics"},
+		Logger:          baseLogger.WithGroup("ratelimit-quota"),
+	})
+
 	writeLimiter := middleware.WriteMethodRateLimiter(cfg.RateLimit().WriteLimit(), cfg.RateLimit().WriteWindow())
 	walletLimiter := middleware.WalletRateLimiter(
 		cfg.RateLimit().WalletLimit(),
@@ -1103,10 +1145,12 @@ func run() error {
 							writeLimiter(
 								authenticator(
 									idempotencyMiddleware(
-										settlementLimiter(
-											walletLimiter(
-												middleware.LimitRequestBody(1 * 1024 * 1024)(
-													middleware.Logging(baseLogger)(mux),
+										costQuota(
+											settlementLimiter(
+												walletLimiter(
+													middleware.LimitRequestBody(1 * 1024 * 1024)(
+														middleware.Logging(baseLogger)(mux),
+													),
 												),
 											),
 										),
