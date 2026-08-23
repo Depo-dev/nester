@@ -18,8 +18,7 @@ type GoalMilestoneNotifier interface {
 
 type noopGoalMilestoneNotifier struct{}
 
-func (noopGoalMilestoneNotifier) SendGoalMilestone(context.Context, uuid.UUID, savingsgoal.SavingsGoal, int) {
-}
+func (noopGoalMilestoneNotifier) SendGoalMilestone(context.Context, uuid.UUID, savingsgoal.SavingsGoal, int) {}
 
 // GoalNotificationPreferenceReader is the read/write seam DispatcherGoalMilestoneNotifier
 // uses to respect a goal's mute + digest-frequency preference (mute/frequency per goal).

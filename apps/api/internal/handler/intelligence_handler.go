@@ -5,9 +5,9 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/suncrestlabs/nester/apps/api/internal/domain/intelligence"
 	"github.com/google/uuid"
 	"github.com/suncrestlabs/nester/apps/api/internal/auth"
-	"github.com/suncrestlabs/nester/apps/api/internal/domain/intelligence"
 	"github.com/suncrestlabs/nester/apps/api/internal/service"
 	logpkg "github.com/suncrestlabs/nester/apps/api/pkg/logger"
 	"github.com/suncrestlabs/nester/apps/api/pkg/response"
