@@ -39,18 +39,6 @@ func Open(cfg Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}
 
-	if err := applyPoolSettings(db, cfg); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	return db, nil
-}
-
-// applyPoolSettings configures the pool limits and verifies connectivity.
-// Shared with OpenTraced so the instrumented and uninstrumented paths cannot
-// drift apart in their pool behaviour or startup checks.
-func applyPoolSettings(db *sql.DB, cfg Config) error {
 	if cfg.MaxOpenConns > 0 {
 		db.SetMaxOpenConns(cfg.MaxOpenConns)
 	}
@@ -67,10 +55,11 @@ func applyPoolSettings(db *sql.DB, cfg Config) error {
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("db: ping: %w", err)
+		_ = db.Close()
+		return nil, fmt.Errorf("db: ping: %w", err)
 	}
 
-	return nil
+	return db, nil
 }
 
 // Ping reports whether the database is reachable within the lifetime of ctx.
