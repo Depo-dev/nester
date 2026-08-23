@@ -475,3 +475,18 @@ func TestHashIntentFieldSeparation(t *testing.T) {
 		t.Fatal("intents differing in field boundaries produced the same hash")
 	}
 }
+
+func TestNetworkDigestDistinguishesNetworks(t *testing.T) {
+	// The intent commitment binds to the network through this digest, so two
+	// networks must not collide -- otherwise an audit record could not
+	// distinguish a testnet intent from a mainnet one.
+	if NetworkDigest(testNetwork) == NetworkDigest(otherNetwork) {
+		t.Fatal("two different networks produced the same digest")
+	}
+	if NetworkDigest(testNetwork) != NetworkDigest(testNetwork) {
+		t.Fatal("the digest is not stable across calls")
+	}
+	if NetworkDigest(testNetwork) == testNetwork {
+		t.Fatal("the digest returned the passphrase unchanged")
+	}
+}
