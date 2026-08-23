@@ -262,3 +262,21 @@ func TestRedactValuePreservesChainIdentifiers(t *testing.T) {
 		}
 	}
 }
+
+// Session and identifier keys carry no credential pattern, so RedactValue
+// cannot recognise their values. The key rule is the only control, and these
+// were missing from the first implementation.
+func TestIsSensitiveKeyBlocksSessionAndIdentifiers(t *testing.T) {
+	for _, key := range []string{
+		"http.request.header.cookie",
+		"auth.session_id",
+		"user.email",
+		"user.phone",
+		"customer.phone_number",
+		"Set-Cookie",
+	} {
+		if !IsSensitiveKey(key) {
+			t.Errorf("IsSensitiveKey(%q) = false; session and identifier keys must be rejected", key)
+		}
+	}
+}

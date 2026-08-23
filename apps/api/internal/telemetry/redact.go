@@ -50,7 +50,28 @@ var (
 	// base32, start with 'S', and are 56 characters long. Matching this on any
 	// value bound for a span is a backstop against an operator secret being
 	// passed where a public address was expected.
+	//
+	// A bare `S[A-Z2-7]{55}` is not sufficient, and the failure is subtle. The
+	// pattern is unanchored by design (see above), so when a seed is preceded
+	// by other base32 characters the regex can match *starting in the prefix*
+	// — consuming prefix bytes plus the seed's first character — and the
+	// remaining 55 seed characters are then too short to form a second match.
+	// They survive into the exported value. A prefix of "S" + 54 uppercase
+	// letters reproduces this and leaks 55 of 56 seed characters.
+	//
+	// base32RunPattern below closes it: any single-case base32 run long enough
+	// to contain a seed is redacted whole, wherever the seed sits inside it.
+	// The narrower pattern is kept because it is precise for the common case
+	// and produces a tighter replacement.
 	stellarSecretPattern = regexp.MustCompile(`S[A-Z2-7]{55}`)
+
+	// base32RunPattern matches any run of 56+ base32 characters. A Stellar
+	// seed cannot appear anywhere inside a shorter run, and a run this long is
+	// opaque key-shaped material regardless. Public identifiers are unharmed:
+	// a contract ID and an account address are exactly 56 characters, so they
+	// are excluded by length check in redactBase32Runs rather than by this
+	// pattern, which deliberately over-matches so the check sees whole runs.
+	base32RunPattern = regexp.MustCompile(`[A-Z2-7]{56,}`)
 
 	// jwtPattern matches a three-segment JSON Web Token.
 	jwtPattern = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*`)
@@ -120,6 +141,15 @@ var sensitiveKeyFragments = []string{
 	"binding",
 	"arg_value",
 	"statement",
+
+	// Session and direct-identifier keys. These are not credentials, so the
+	// value patterns in RedactValue do not recognise them, which makes the
+	// key rule the only thing standing between a cookie or an email address
+	// and the trace backend.
+	"session",
+	"cookie",
+	"email",
+	"phone",
 }
 
 // canonicalStatementKeys are the exact OTel semantic-convention keys allowed
@@ -207,7 +237,8 @@ func RedactValue(value string) string {
 	// preserving offsets for the patterns below.
 	value = strings.ToValidUTF8(value, "")
 
-	redacted := stellarSecretPattern.ReplaceAllString(value, RedactedPlaceholder)
+	redacted := redactBase32Runs(value)
+	redacted = stellarSecretPattern.ReplaceAllString(redacted, RedactedPlaceholder)
 	redacted = jwtPattern.ReplaceAllString(redacted, RedactedPlaceholder)
 	redacted = bearerPattern.ReplaceAllString(redacted, RedactedPlaceholder)
 	redacted = anthropicKeyPattern.ReplaceAllString(redacted, RedactedPlaceholder)
@@ -215,6 +246,31 @@ func RedactValue(value string) string {
 	redacted = redactXDR(redacted)
 
 	return truncate(redacted)
+}
+
+// stellarStrKeyLen is the length of an encoded StrKey — a secret seed, an
+// account address, and a contract ID are all exactly this long.
+const stellarStrKeyLen = 56
+
+// redactBase32Runs redacts base32 runs long enough to conceal a Stellar seed.
+//
+// This exists because the unanchored seed pattern can be absorbed by adjacent
+// base32 text: the regex matches starting inside the prefix, consumes the
+// seed's first character, and leaves the remaining 55 characters — too short
+// to match again — in the exported value.
+//
+// A run of exactly 56 characters is left alone: that is the length of a
+// legitimate public identifier (contract ID, account address), and those must
+// survive so Soroban spans stay useful. A *longer* run cannot be a bare
+// identifier; it is either a seed with adjacent material or opaque key-shaped
+// data, and is redacted whole.
+func redactBase32Runs(value string) string {
+	return base32RunPattern.ReplaceAllStringFunc(value, func(run string) string {
+		if len(run) <= stellarStrKeyLen {
+			return run
+		}
+		return RedactedPlaceholder
+	})
 }
 
 // redactXDR removes base64-encoded transaction envelopes.
