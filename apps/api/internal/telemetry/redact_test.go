@@ -251,7 +251,7 @@ func TestRedactValueStripsTransactionXDR(t *testing.T) {
 func TestRedactValuePreservesChainIdentifiers(t *testing.T) {
 	identifiers := []string{
 		"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",         // contract ID
-		"G" + "A5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",         // public address
+		"G" + "A5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",    // public address
 		"a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801", // tx hash
 		"9f3ab2c1-0000-4000-8000-000000000000",                             // uuid
 		"GET /api/v1/users/{id}/savings-goals",                             // route pattern
