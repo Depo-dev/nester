@@ -549,10 +549,9 @@ tests:
               slo: balance_freshness
               service: api
             exp_annotations:
-              # 120, not 130: same one-step lookback as the staleness case —
-              # at t=13m the current sample is the one written at t=12m.
-              summary: "Event indexer 120 ledgers behind the network tip"
-              description: "Indexed ledger is 120 behind the chain tip (~5 minutes at a 5s close interval). Users are seeing stale balances: a deposit that has settled on-chain will not appear in the app until this recovers. Paging because the displayed balance of a savings product being wrong is a trust failure, not a cosmetic one."
+              # 130: the gauge series is 0+10x30, so at t=13m it reads 130.
+              summary: "Event indexer 130 ledgers behind the network tip"
+              description: "Indexed ledger is 130 behind the chain tip (~5 minutes at a 5s close interval). Users are seeing stale balances: a deposit that has settled on-chain will not appear in the app until this recovers. Paging because the displayed balance of a savings product being wrong is a trust failure, not a cosmetic one."
               dashboard: /d/nester-slo-balance/balance-freshness
               runbook: docs/observability/runbooks/balance-freshness.md
 
@@ -582,9 +581,8 @@ tests:
               slo: balance_freshness
               service: api
             exp_annotations:
-              # 19m, not 20m: the series starts at 0 and steps 60s per minute, so the
-              # sample current at t=20m is the one written at t=19m.
-              summary: "Event indexer has not reported lag for 19m 0s"
+              # 20m: the series is 0+60x30, so at t=20m it reads 1200s.
+              summary: "Event indexer has not reported lag for 20m 0s"
               description: "The lag gauge has not been updated in over 5 minutes, so the freshness signal itself is stale. The indexer polls every 6s, so this means it is wedged, erroring, or dead. Critically, the lag gauge may still read healthy — do not trust it. Check nester_indexer_lag_sample_errors_total and the indexer logs."
               dashboard: /d/nester-slo-balance/balance-freshness
               runbook: docs/observability/runbooks/balance-freshness.md

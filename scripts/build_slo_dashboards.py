@@ -729,11 +729,113 @@ def build_balance_dashboard() -> dict[str, Any]:
     )
 
 
+def build_probe_dashboard() -> dict[str, Any]:
+    panels = [
+        _text(
+            "Synthetic probes — staging",
+            (
+                "Probes exercise deposit, withdrawal, balance read, and an "
+                "intelligence query on a schedule, so a path that is broken "
+                "while nobody is using it is found by us rather than by the "
+                "first user who tries it.\n\n"
+                "No error budget: a probe is a scheduled event, not a ratio "
+                "over traffic, so there is nothing to burn. Alerts are "
+                "absolute and ticket-severity — these run against staging, so "
+                "a failure means a path is broken before it reaches "
+                "production.\n\n"
+                "**Runbook** `docs/observability/runbooks/synthetic-probes.md`"
+            ),
+            {"h": 5, "w": 24, "x": 0, "y": 0},
+        ),
+        _stat(
+            "Probes passing",
+            "sum(nester_probe_success)",
+            "none",
+            {"h": 5, "w": 8, "x": 0, "y": 5},
+            description="Count of probes whose last run succeeded.",
+            decimals=0,
+            thresholds=[{"color": "red", "value": None}, {"color": "green", "value": 1}],
+        ),
+        _stat(
+            "Oldest probe result",
+            "max(time() - nester_probe_last_run_timestamp_seconds)",
+            "s",
+            {"h": 5, "w": 8, "x": 8, "y": 5},
+            description=(
+                "Age of the least recent probe result. Climbing past 30 "
+                "minutes means the runner stopped — the success gauges beside "
+                "it are then stale and must not be read as healthy."
+            ),
+            decimals=0,
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "orange", "value": 900},
+                {"color": "red", "value": 1800},
+            ],
+        ),
+        _stat(
+            "Slowest probe",
+            "max(nester_probe_duration_seconds)",
+            "s",
+            {"h": 5, "w": 8, "x": 16, "y": 5},
+            description="Duration of the slowest probe. Tickets above 60s.",
+            decimals=1,
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "orange", "value": 30},
+                {"color": "red", "value": 60},
+            ],
+        ),
+        _timeseries(
+            "Probe outcome",
+            [("nester_probe_success", "{{probe}}")],
+            "none",
+            {"h": 9, "w": 12, "x": 0, "y": 10},
+            description="1 is passing, 0 is failing, per probe.",
+        ),
+        _timeseries(
+            "Probe duration",
+            [("nester_probe_duration_seconds", "{{probe}}")],
+            "s",
+            {"h": 9, "w": 12, "x": 12, "y": 10},
+            description="Latency per probe. A rising trend precedes an outright failure.",
+            thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 60}],
+        ),
+        _timeseries(
+            "Failure reasons",
+            [("nester_probe_last_reason", "{{probe}}: {{reason}}")],
+            "none",
+            {"h": 8, "w": 12, "x": 0, "y": 19},
+            description=(
+                "Bounded reason enum — timeout, connection, http_4xx, "
+                "http_5xx, bad_payload, assertion, unknown. The detail behind "
+                "a reason is in the workflow log, never in a label."
+            ),
+        ),
+        _timeseries(
+            "Result age",
+            [("time() - nester_probe_last_run_timestamp_seconds", "{{probe}}")],
+            "s",
+            {"h": 8, "w": 12, "x": 12, "y": 19},
+            description="Should sawtooth with the schedule. A steady climb means the runner stopped.",
+            thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1800}],
+        ),
+    ]
+
+    return _dashboard(
+        "nester-slo-probes",
+        "SLO — Synthetic probes",
+        "Staging synthetic probe results for deposit, withdrawal, balance, and intelligence (nester#1056).",
+        panels,
+    )
+
+
 DASHBOARDS = {
     "slo-api-availability.json": build_api_dashboard,
     "slo-deposits-withdrawals.json": build_flow_dashboard,
     "slo-intelligence.json": build_intelligence_dashboard,
     "slo-balance-freshness.json": build_balance_dashboard,
+    "slo-synthetic-probes.json": build_probe_dashboard,
 }
 
 

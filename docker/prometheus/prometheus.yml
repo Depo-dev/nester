@@ -24,6 +24,7 @@ global:
 rule_files:
   - /etc/prometheus/rules/slo_recording.yml
   - /etc/prometheus/rules/slo_alerts.yml
+  - /etc/prometheus/rules/slo_probe_alerts.yml
 
 alerting:
   alertmanagers:
