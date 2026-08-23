@@ -26,7 +26,7 @@ from app.routers import (
     tool_actions,
     ws_chat,
 )
-from app.telemetry import setup_tracing
+from app.telemetry import setup_tracing, shutdown_tracing
 
 
 class RequestIDFormatter(logging.Formatter):
@@ -55,7 +55,13 @@ _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Intelligence service started")
-    yield
+    try:
+        yield
+    finally:
+        # Flush buffered spans. The BatchSpanProcessor would otherwise drop
+        # its last batch on exit, losing the traces that describe the
+        # shutdown itself. A no-op when tracing is disabled.
+        shutdown_tracing(app)
 
 
 app = FastAPI(title="Nester Intelligence", lifespan=lifespan)

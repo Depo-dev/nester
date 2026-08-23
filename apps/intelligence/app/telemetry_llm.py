@@ -306,6 +306,9 @@ def record_tool_status(status: str, span: Span | None = None) -> None:
         return
 
     target.set_attribute(ATTR_TOOL_STATUS, status)
-    if status in {"rejected", "error", "not_found"}:
+    # "failed" is the vocabulary prometheus.py uses for a handled tool
+    # failure; without it such a round would be left UNSET and dropped by
+    # error-based tail sampling.
+    if status in {"rejected", "error", "not_found", "failed"}:
         target.set_status(StatusCode.ERROR, status)
         mark_for_retention(target)

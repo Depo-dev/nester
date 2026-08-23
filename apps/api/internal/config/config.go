@@ -682,6 +682,14 @@ func (c *Config) validate(loader *envLoader) {
 		if strings.TrimSpace(c.tracing.otlpEndpoint) == "" {
 			loader.addError("OTEL_EXPORTER_OTLP_ENDPOINT is required when TRACING_ENABLED is true")
 		}
+		// Spans carry request metadata and must not cross a network in
+		// plaintext. The insecure default suits a collector on the same host
+		// or compose network, but shipping it to staging or production would
+		// send telemetry over unencrypted gRPC — so it is rejected there and
+		// must be set explicitly.
+		if c.tracing.otlpInsecure && isOneOf(c.environment, "staging", "production") {
+			loader.addError("OTEL_EXPORTER_OTLP_INSECURE must be false when TRACING_ENABLED is true outside development")
+		}
 		if strings.TrimSpace(c.tracing.serviceName) == "" {
 			loader.addError("OTEL_SERVICE_NAME is required when TRACING_ENABLED is true")
 		}

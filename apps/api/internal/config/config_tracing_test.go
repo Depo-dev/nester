@@ -156,3 +156,34 @@ func TestTracingRejectsNonNumericSampleRatio(t *testing.T) {
 		t.Fatal("Load accepted a non-numeric TRACING_SAMPLE_RATIO")
 	}
 }
+
+// Spans must not cross a network in plaintext. The insecure default is for a
+// local collector; carrying it into a deployed environment would ship
+// telemetry over unencrypted gRPC.
+func TestTracingRejectsInsecureExporterOutsideDevelopment(t *testing.T) {
+	for _, env := range []string{"staging", "production"} {
+		t.Run(env, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("APP_ENV", env)
+			t.Setenv("AUTH_JWT_SECRET", "a-sufficiently-long-non-default-secret-for-"+env)
+			t.Setenv("TRACING_ENABLED", "true")
+			t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
+
+			if _, err := Load(); err == nil {
+				t.Fatalf("Load accepted an insecure OTLP exporter in %s", env)
+			}
+		})
+	}
+}
+
+// Development is the case the insecure default exists for.
+func TestTracingAllowsInsecureExporterInDevelopment(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("TRACING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
+
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load rejected the local development default: %v", err)
+	}
+}

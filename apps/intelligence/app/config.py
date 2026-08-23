@@ -88,6 +88,27 @@ class Settings(BaseSettings):
     )
 
     @model_validator(mode="after")
+    def _validate_tracing_transport(self) -> "Settings":
+        """Reject a plaintext OTLP exporter outside development.
+
+        Spans carry request metadata and must not cross a network
+        unencrypted. The insecure default suits a collector on the same host
+        or compose network; carrying it into a deployed environment would
+        ship telemetry over plaintext gRPC, so it must be set explicitly
+        there.
+        """
+        if (
+            self.tracing_enabled
+            and self.otel_exporter_otlp_insecure
+            and self.environment in {"staging", "production"}
+        ):
+            raise ValueError(
+                "INTELLIGENCE_OTEL_EXPORTER_OTLP_INSECURE must be false when "
+                "tracing is enabled outside development."
+            )
+        return self
+
+    @model_validator(mode="after")
     def _validate_production_jwt(self) -> "Settings":
         environment = os.getenv("ENVIRONMENT", "development").lower()
         if environment != "development" and not self.jwt_secret:

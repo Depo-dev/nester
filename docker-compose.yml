@@ -44,6 +44,16 @@ services:
       LOG_FORMAT: text
       RUN_MIGRATIONS: "true"
       ALLOWED_ORIGINS: http://localhost:3001
+      # Tracing (nester#1054). Off unless TRACING_ENABLED is exported, so the
+      # default compose workflow is unchanged. The endpoint targets the
+      # collector over the compose network — localhost:4317 would resolve to
+      # this container, not the collector.
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      # 1.0 because the collector applies tail sampling: a trace the head
+      # drops never reaches it. See deploy/observability/otel-collector.yaml.
+      TRACING_SAMPLE_RATIO: ${TRACING_SAMPLE_RATIO:-1.0}
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,6 +105,12 @@ services:
       - ./apps/intelligence/.env
     environment:
       INTELLIGENCE_REDIS_URL: redis://redis:6379/0
+      # See the api service above for why the endpoint is not localhost and
+      # why the sample ratio is 1.0 under the collector.
+      INTELLIGENCE_TRACING_ENABLED: ${INTELLIGENCE_TRACING_ENABLED:-false}
+      INTELLIGENCE_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      INTELLIGENCE_OTEL_EXPORTER_OTLP_INSECURE: "true"
+      INTELLIGENCE_TRACING_SAMPLE_RATIO: ${INTELLIGENCE_TRACING_SAMPLE_RATIO:-1.0}
     depends_on:
       redis:
         condition: service_healthy

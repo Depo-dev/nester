@@ -15,7 +15,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from opentelemetry.sdk.trace.sampling import ALWAYS_ON, ParentBased
+from opentelemetry.sdk.trace.sampling import ALWAYS_ON
 from opentelemetry.trace import SpanContext, TraceFlags, set_span_in_context
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from opentelemetry.util._once import Once
@@ -228,8 +228,11 @@ class TestSampling:
     """The head sampler must never truncate an upstream-sampled trace."""
 
     def test_ratio_one_always_samples(self) -> None:
-        sampler = build_sampler(1.0)
-        assert isinstance(sampler, ParentBased)
+        # Asserting only the type is too weak: build_sampler(0.0) also returns
+        # a ParentBased, so the check would pass even if the ratio-1 branch
+        # were changed to ALWAYS_OFF. Assert the decision instead.
+        decision = build_sampler(1.0).should_sample(None, 0x1234, "op")
+        assert decision.decision.is_sampled()
 
     def test_ratio_zero_drops_local_roots(self) -> None:
         sampler = build_sampler(0.0)
@@ -344,3 +347,32 @@ def test_no_sensitive_headers_reach_spans(
         assert fake_jwt not in blob, "a JWT reached a span"
         assert fake_key not in blob, "an API key reached a span"
         assert "Bearer" not in blob, "an Authorization header reached a span"
+
+
+class TestTracingTransportSecurity:
+    """Spans must not cross a network in plaintext outside development."""
+
+    def _settings(self, **overrides: object) -> object:
+        from app.config import Settings
+
+        base: dict[str, object] = {
+            "tracing_enabled": True,
+            "otel_exporter_otlp_insecure": True,
+            "environment": "development",
+        }
+        base.update(overrides)
+        return Settings(**base)  # type: ignore[arg-type]
+
+    def test_insecure_rejected_in_deployed_environments(self) -> None:
+        for env in ("staging", "production"):
+            with pytest.raises(ValueError, match="INSECURE"):
+                self._settings(environment=env)
+
+    def test_insecure_allowed_in_development(self) -> None:
+        self._settings(environment="development")
+
+    def test_secure_transport_allowed_everywhere(self) -> None:
+        self._settings(environment="production", otel_exporter_otlp_insecure=False)
+
+    def test_no_constraint_when_tracing_disabled(self) -> None:
+        self._settings(environment="production", tracing_enabled=False)

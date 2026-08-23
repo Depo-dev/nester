@@ -8,6 +8,7 @@ argument, no API key.
 """
 
 import time
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
 
@@ -50,17 +51,26 @@ API_KEY = "sk-ant-api03-" + "Z" * 24
 
 
 @pytest.fixture
-def exporter() -> InMemorySpanExporter:
+def exporter() -> Iterator[InMemorySpanExporter]:
     memory = InMemorySpanExporter()
     provider = TracerProvider(sampler=ALWAYS_ON)
     provider.add_span_processor(SimpleSpanProcessor(memory))
 
     # The global provider is a one-shot; both it and its guard must be reset
     # so each test gets its own exporter. See tests/test_tracing.py.
+    previous_provider = trace._TRACER_PROVIDER  # type: ignore[attr-defined]
+    previous_once = trace._TRACER_PROVIDER_SET_ONCE  # type: ignore[attr-defined]
+
     trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
     trace._TRACER_PROVIDER_SET_ONCE = Once()  # type: ignore[attr-defined]
     trace.set_tracer_provider(provider)
-    return memory
+
+    yield memory
+
+    # Restore the globals so this module's providers do not leak into tests
+    # that run after it.
+    trace._TRACER_PROVIDER = previous_provider  # type: ignore[attr-defined]
+    trace._TRACER_PROVIDER_SET_ONCE = previous_once  # type: ignore[attr-defined]
 
 
 def fake_final_message(

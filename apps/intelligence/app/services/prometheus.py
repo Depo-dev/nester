@@ -684,6 +684,19 @@ async def stream_chat(
                                         "content": str(e)
                                     })
                             else:
+                                # The proposal path terminates the turn and
+                                # returns to the user for confirmation, so it
+                                # is the round an operator most needs to see
+                                # in a waterfall. Emitted as a point-in-time
+                                # span rather than wrapping the branch, since
+                                # the branch returns out of this generator and
+                                # wrapping it would change control flow. Only
+                                # the tool name and status are recorded.
+                                with tool_round_span(
+                                    tool.name, rounds, consequential=True
+                                ) as _proposal_span:
+                                    record_tool_status("proposed", _proposal_span)
+
                                 proposal_id = str(uuid.uuid4())
                                 if tool.confirmation_template:
                                     confirmation_text = tool.confirmation_template(

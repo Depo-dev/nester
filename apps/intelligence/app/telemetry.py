@@ -101,6 +101,10 @@ def setup_tracing(app: "FastAPI") -> bool:
     Returns True when tracing was enabled and installed, False when it is
     switched off or could not be configured. A failure here is logged and
     swallowed: telemetry must never prevent the service from starting.
+
+    On success the provider is published on ``app.state.tracer_provider`` so
+    the lifespan handler can flush it at shutdown. It is published only after
+    instrumentation succeeds, so a half-configured provider is never exposed.
     """
     from app.config import settings
 
@@ -141,6 +145,10 @@ def setup_tracing(app: "FastAPI") -> bool:
         trace.set_tracer_provider(provider)
 
         instrument_app(app)
+
+        # Published only now: instrumentation succeeded, so the provider is
+        # fully wired and safe for the lifespan handler to shut down.
+        app.state.tracer_provider = provider
 
         logger.info(
             "Tracing enabled (endpoint=%s service=%s ratio=%s)",
@@ -205,6 +213,26 @@ def _server_request_hook(span: trace.Span | None, scope: dict[str, object]) -> N
         # unbounded attribute is both a cardinality and an ingest problem.
         span.set_attribute(REQUEST_ID_ATTRIBUTE, decoded[:128])
         return
+
+
+def shutdown_tracing(app: "FastAPI") -> None:
+    """Flush and shut down the tracer provider, if one was installed.
+
+    Spans are exported through a BatchSpanProcessor, so without this the last
+    batch is dropped when the process stops — losing exactly the traces that
+    describe a shutdown or a failing deploy.
+
+    Errors are logged and swallowed: a telemetry failure must never obstruct
+    shutdown.
+    """
+    provider = getattr(app.state, "tracer_provider", None)
+    if provider is None:
+        return
+
+    try:
+        provider.shutdown()
+    except Exception:
+        logger.exception("Failed to shut down the tracer provider")
 
 
 def get_tracer() -> trace.Tracer:

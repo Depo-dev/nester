@@ -27,16 +27,18 @@ for. The two coexist and serve different purposes.
 
 ## Quick start
 
-Bring up the collector and Jaeger, then run the services with tracing on:
+Bring the collector and Jaeger up detached, so the shell stays free:
 
 ```bash
-docker compose --profile observability up
+docker compose --profile observability up -d otel-collector jaeger
 ```
+
+Then run the application services with tracing on:
 
 ```bash
 TRACING_ENABLED=true \
 INTELLIGENCE_TRACING_ENABLED=true \
-docker compose --profile observability up
+docker compose up
 ```
 
 Open the Jaeger UI at <http://localhost:16686> and choose the `nester-api` or
@@ -380,7 +382,7 @@ relationships, and attribute names are exactly what production emits.
 ```
 Trace 38959b65ed46b6850bea4a8710648638                        total 13.6ms
 
-nester-api        GET /api/v1/transactions                    13.658ms  ROOT
+nester-api        POST /api/v1/transactions                   13.658ms  ROOT
 │                   http.request.method   = POST
 │                   http.route            = /api/v1/transactions
 │                   http.response.status_code = 201
@@ -406,7 +408,7 @@ The full hierarchy for a deposit that also consults the intelligence service
 extends as follows. Each level is a real span this implementation emits:
 
 ```
-nester-api            GET /api/v1/transactions              ROOT
+nester-api            POST /api/v1/transactions             ROOT
 ├── nester-api        postgres.query                        db write
 ├── nester-api        redis.GET                             cache lookup
 ├── nester-api        intelligence.relay/chat               CLIENT span
