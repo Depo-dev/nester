@@ -61,6 +61,10 @@ type Metrics struct {
 	outboundRequestsTotal *prometheus.CounterVec
 	outboundDuration      *prometheus.HistogramVec
 	outboundErrorsTotal   *prometheus.CounterVec
+
+	// Service level indicators (nester#1056). Defined in slo.go; held here
+	// so one scrape carries both the infrastructure and the product view.
+	slo *sloCollectors
 }
 
 // New builds the registry and registers every collector on it.
@@ -149,6 +153,8 @@ func New() *Metrics {
 			Name:      "errors_total",
 			Help:      "Total outbound HTTP requests that failed before a response, by upstream and error kind.",
 		}, []string{"upstream", "kind"}),
+
+		slo: newSLOCollectors(),
 	}
 
 	registry.MustRegister(
@@ -162,6 +168,8 @@ func New() *Metrics {
 		m.outboundDuration,
 		m.outboundErrorsTotal,
 	)
+
+	registry.MustRegister(m.slo.collectors()...)
 
 	// Process and Go runtime collectors: goroutine count, heap, GC pauses,
 	// open file descriptors, CPU. Free to collect and the first thing anyone

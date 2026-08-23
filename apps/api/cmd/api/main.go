@@ -207,8 +207,16 @@ func run() error {
 
 	systemStateRepository := postgres.NewSystemStateRepository(db)
 
+	// The Prometheus registry is constructed here rather than further down
+	// because the vault service takes it for the deposit and withdrawal SLIs
+	// (nester#1056), and it must exist before the first instrumented service.
+	// Additional collectors still attach to it below.
+	appMetrics := metrics.New()
+
 	vaultRepository := postgres.NewVaultRepository(db)
 	vaultService := service.NewVaultService(vaultRepository)
+	// Deposit and withdrawal SLIs (nester#1056).
+	vaultService.SetMetrics(appMetrics)
 	vaultService.SetHarvestDefaultCompound(cfg.Stellar().HarvestDefaultCompound())
 	vaultHandler := handler.NewVaultHandler(vaultService)
 
@@ -364,15 +372,14 @@ func run() error {
 		redisClient = cache.InstrumentRedis(redisClient, cfg.Tracing().Enabled())
 	}
 
-	// Metrics are constructed once, here, and threaded to each
-	// instrumentation point. Nothing in the request path registers a
-	// collector: registration takes the registry lock, and doing it per
-	// request would be both a hot-path cost and an unbounded-series risk.
+	// The remaining collectors attach to appMetrics, which is constructed
+	// above. Nothing in the request path registers a collector: registration
+	// takes the registry lock, and doing it per request would be both a
+	// hot-path cost and an unbounded-series risk.
 	//
-	// The registry is populated before any traffic is served so a scrape
-	// that lands during startup returns a consistent set of series rather
-	// than a metric appearing partway through.
-	appMetrics := metrics.New()
+	// The registry is populated before any traffic is served so a scrape that
+	// lands during startup returns a consistent set of series rather than a
+	// metric appearing partway through.
 
 	// pgxpool and go-redis both maintain their own counters, so these are
 	// pull collectors read at scrape time rather than gauges on a ticker.
@@ -944,7 +951,12 @@ func run() error {
 	// (nudge.NudgeTypeDeadlineReminder / EvaluateDeadlineReminderTrigger)
 	// rather than a dedicated scheduler job — see nudgeEngineJob below.
 
+	// Scheduled and recurring deposits run through their own vault service
+	// instance. They are real user deposits, so they carry the same SLI
+	// instrumentation: excluding them would understate both the numerator and
+	// the denominator of the deposit success rate.
 	ledgerVaultService := service.NewVaultService(vaultRepository)
+	ledgerVaultService.SetMetrics(appMetrics)
 	scheduledDepositSvc := service.NewScheduledDepositService(ledgerVaultService)
 	goalProgressSvc := service.NewGoalProgressService(savingsGoalRepo)
 
@@ -1303,7 +1315,10 @@ func run() error {
 		"auto_migrate", cfg.Startup().EnableAutoMigrate(),
 	)
 
-	stellarpkg.StartEventIndexer(shutdownCtx, baseLogger, db, systemStateRepository, cfg.Stellar().RPCURL())
+	// Balance-freshness SLI (nester#1056): the indexer publishes its own lag
+	// from the network tip it already fetches, so the sample costs no extra
+	// RPC call.
+	stellarpkg.StartEventIndexerWithMetrics(shutdownCtx, baseLogger, db, systemStateRepository, cfg.Stellar().RPCURL(), appMetrics)
 
 	// The metrics endpoint runs on its own listener so it is never reachable
 	// through the public port. It is not registered on mux at any point, so

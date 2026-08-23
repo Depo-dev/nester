@@ -11,6 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/vault"
+	"github.com/suncrestlabs/nester/apps/api/internal/metrics"
 )
 
 type sharePriceCache struct {
@@ -58,12 +59,12 @@ func (c *sharePriceCache) invalidate(id uuid.UUID) {
 }
 
 type SharePriceResponse struct {
-	VaultID       string `json:"vault_id"`
-	SharesPerUSDC string `json:"shares_per_usdc"`
-	USDCPerShare  string `json:"usdc_per_share"`
-	TotalShares   string `json:"total_shares"`
+	VaultID         string `json:"vault_id"`
+	SharesPerUSDC   string `json:"shares_per_usdc"`
+	USDCPerShare    string `json:"usdc_per_share"`
+	TotalShares     string `json:"total_shares"`
 	TotalAssetsUSDC string `json:"total_assets_usdc"`
-	AsOfLedger    int64  `json:"as_of_ledger"`
+	AsOfLedger      int64  `json:"as_of_ledger"`
 }
 
 type ConvertRequest struct {
@@ -129,6 +130,11 @@ type VaultService struct {
 	yieldRecorder          YieldHarvestRecorder
 	goalYieldRouter        GoalYieldRouter
 	sharePriceCache        *sharePriceCache
+	// metrics is optional. A nil value disables SLI recording and every
+	// helper in vault_flow_metrics.go no-ops, so a service constructed
+	// without it (tests, tooling) behaves exactly as before. Losing
+	// observability must never change the behaviour of the money path.
+	metrics *metrics.Metrics
 }
 
 // GoalYieldRouter lets VaultService honor a savings goal's per-goal
@@ -186,17 +192,17 @@ type RecordWithdrawalInput struct {
 }
 
 type RebalancePositionInput struct {
-	VaultID     uuid.UUID
-	UserID      uuid.UUID
+	VaultID      uuid.UUID
+	UserID       uuid.UUID
 	FromProtocol string
 	ToProtocol   string
-	Amount      decimal.Decimal
-	Currency    string
-	TxHash      string
+	Amount       decimal.Decimal
+	Currency     string
+	TxHash       string
 }
 
 type RebalancePositionResult struct {
-	Vault              vault.Vault
+	Vault               vault.Vault
 	FromProtocolBalance decimal.Decimal
 	ToProtocolBalance   decimal.Decimal
 }
@@ -214,6 +220,12 @@ func NewVaultService(repository vault.Repository) *VaultService {
 // Call this after NewVaultService when an operator key is available.
 func (s *VaultService) SetDepositInvoker(invoker VaultDepositInvoker) {
 	s.depositInvoker = invoker
+}
+
+// SetMetrics wires the SLI recorder for the deposit and withdrawal service
+// level indicators (nester#1056). Optional; when unset, recording no-ops.
+func (s *VaultService) SetMetrics(m *metrics.Metrics) {
+	s.metrics = m
 }
 
 // SetHarvestDefaultCompound configures the compound flag when the request omits it.
@@ -303,7 +315,13 @@ func (s *VaultService) ListUserVaults(
 	return s.repository.ListUserVaults(ctx, userID, filter)
 }
 
-func (s *VaultService) RecordDeposit(ctx context.Context, input RecordDepositInput) (vault.Vault, error) {
+func (s *VaultService) RecordDeposit(ctx context.Context, input RecordDepositInput) (_ vault.Vault, err error) {
+	// Deposit SLI (nester#1056). Deferred rather than called per return path
+	// so that a return added later cannot silently drop the attempt from the
+	// denominator and inflate the reported success rate.
+	startedAt := time.Now()
+	defer func() { recordFlow(s.metrics, metrics.FlowDeposit, startedAt, err) }()
+
 	if input.VaultID == uuid.Nil {
 		return vault.Vault{}, vault.ErrInvalidVault
 	}
@@ -538,7 +556,12 @@ func (s *VaultService) UnpauseVault(ctx context.Context, vaultID uuid.UUID) (vau
 }
 
 // RecordWithdrawal decrements current_balance and logs the transaction.
-func (s *VaultService) RecordWithdrawal(ctx context.Context, input RecordWithdrawalInput) (vault.Vault, error) {
+func (s *VaultService) RecordWithdrawal(ctx context.Context, input RecordWithdrawalInput) (_ vault.Vault, err error) {
+	// Withdrawal SLI (nester#1056). See RecordDeposit for why this is
+	// deferred rather than recorded on each return path.
+	startedAt := time.Now()
+	defer func() { recordFlow(s.metrics, metrics.FlowWithdrawal, startedAt, err) }()
+
 	if input.VaultID == uuid.Nil {
 		return vault.Vault{}, vault.ErrInvalidVault
 	}
@@ -974,12 +997,12 @@ func (s *VaultService) RebalancePosition(ctx context.Context, input RebalancePos
 	}
 
 	err = s.repository.RecordRebalance(ctx, vault.RebalanceRecordInput{
-		VaultID:              input.VaultID,
-		UserID:               input.UserID,
-		FromProtocol:         input.FromProtocol,
-		ToProtocol:           input.ToProtocol,
-		Amount:               input.Amount,
-		TransactionHash:      input.TxHash,
+		VaultID:         input.VaultID,
+		UserID:          input.UserID,
+		FromProtocol:    input.FromProtocol,
+		ToProtocol:      input.ToProtocol,
+		Amount:          input.Amount,
+		TransactionHash: input.TxHash,
 	}, withdrawRecord, depositRecord)
 	if err != nil {
 		return RebalancePositionResult{}, err
@@ -1002,7 +1025,7 @@ func (s *VaultService) RebalancePosition(ctx context.Context, input RebalancePos
 	}
 
 	return RebalancePositionResult{
-		Vault:              updatedVault,
+		Vault:               updatedVault,
 		FromProtocolBalance: fromBalance,
 		ToProtocolBalance:   toBalance,
 	}, nil

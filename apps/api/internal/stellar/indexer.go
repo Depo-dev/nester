@@ -20,7 +20,29 @@ import (
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/systemstate"
 )
 
+// LagRecorder receives balance-freshness samples from the event indexer
+// (nester#1056). Implemented by *metrics.Metrics; declared as an interface
+// here so the stellar package does not depend on the metrics package and a
+// nil recorder disables sampling without a branch at every call site.
+type LagRecorder interface {
+	SetIndexerLag(lagLedgers uint64)
+	SetIndexerLagSampleAge(age time.Duration)
+	RecordIndexerLagSampleError()
+}
+
+// StartEventIndexerWithMetrics is StartEventIndexer with balance-freshness
+// instrumentation. recorder may be nil, in which case no samples are taken
+// and the indexer behaves exactly as before: telemetry must never be able to
+// stop the indexer from indexing.
+func StartEventIndexerWithMetrics(ctx context.Context, logger *slog.Logger, db *sql.DB, sysRepo systemstate.Repository, rpcURL string, recorder LagRecorder) {
+	startEventIndexer(ctx, logger, db, sysRepo, rpcURL, recorder)
+}
+
 func StartEventIndexer(ctx context.Context, logger *slog.Logger, db *sql.DB, sysRepo systemstate.Repository, rpcURL string) {
+	startEventIndexer(ctx, logger, db, sysRepo, rpcURL, nil)
+}
+
+func startEventIndexer(ctx context.Context, logger *slog.Logger, db *sql.DB, sysRepo systemstate.Repository, rpcURL string, recorder LagRecorder) {
 	if strings.TrimSpace(rpcURL) == "" {
 		logger.Warn("event indexer disabled: STELLAR_RPC_URL is empty")
 		return
@@ -31,6 +53,13 @@ func StartEventIndexer(ctx context.Context, logger *slog.Logger, db *sql.DB, sys
 		ticker := time.NewTicker(6 * time.Second)
 		defer ticker.Stop()
 
+		// Age of the last successful lag sample. Published on every tick so
+		// that a stalled or erroring indexer makes the freshness signal
+		// visibly stale instead of leaving the lag gauge frozen at a healthy
+		// value, which is the one failure mode a balance-freshness SLI must
+		// not have.
+		lastLagSampleAt := time.Now()
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -39,12 +68,14 @@ func StartEventIndexer(ctx context.Context, logger *slog.Logger, db *sql.DB, sys
 				startLedger, err := getLastIndexedLedger(ctx, sysRepo)
 				if err != nil {
 					logger.Error("event indexer failed to load cursor", "error", err)
+					recordLagSampleError(recorder, lastLagSampleAt)
 					continue
 				}
 
 				contractIDs, err := loadVaultContractIDs(ctx, db)
 				if err != nil {
 					logger.Error("event indexer failed to load vault contracts", "error", err)
+					recordLagSampleError(recorder, lastLagSampleAt)
 					continue
 				}
 				if len(contractIDs) == 0 {
@@ -54,7 +85,30 @@ func StartEventIndexer(ctx context.Context, logger *slog.Logger, db *sql.DB, sys
 				events, latestLedger, err := fetchSorobanEvents(ctx, client, rpcURL, contractIDs, startLedger)
 				if err != nil {
 					logger.Error("event indexer fetch failed", "error", err)
+					recordLagSampleError(recorder, lastLagSampleAt)
 					continue
+				}
+
+				// Balance freshness (nester#1056). fetchSorobanEvents already
+				// returns the network tip, so the lag sample costs no extra
+				// RPC call. Sampled before the events are applied so a slow
+				// apply loop shows up as staleness rather than being hidden.
+				//
+				// A zero cursor means the indexer has never persisted a
+				// ledger (cold start, or a wiped system_state). Publishing
+				// latestLedger-0 there would report the entire ledger history
+				// as lag and page instantly on a fresh deploy, so the sample
+				// is skipped: the staleness gauge then ages past its
+				// threshold and the "no data" alert fires instead, which is
+				// the honest signal for "this indexer has never run".
+				if recorder != nil && startLedger > 0 {
+					if latestLedger > startLedger {
+						recorder.SetIndexerLag(latestLedger - startLedger)
+					} else {
+						recorder.SetIndexerLag(0)
+					}
+					recorder.SetIndexerLagSampleAge(0)
+					lastLagSampleAt = time.Now()
 				}
 
 				for _, event := range events {
@@ -717,4 +771,16 @@ func (s *EventSyncer) SyncEvents(ctx context.Context) (int, error) {
 	}
 
 	return processed, nil
+}
+
+// recordLagSampleError counts a failed freshness sample and publishes how
+// stale the last good reading now is. Split out so every error path in the
+// indexer loop reports staleness identically.
+func recordLagSampleError(recorder LagRecorder, lastSampleAt time.Time) {
+	if recorder == nil {
+		return
+	}
+
+	recorder.RecordIndexerLagSampleError()
+	recorder.SetIndexerLagSampleAge(time.Since(lastSampleAt))
 }
