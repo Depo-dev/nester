@@ -321,6 +321,8 @@ def test_no_sensitive_headers_reach_spans(
     traced_app: FastAPI, exporter: InMemorySpanExporter
 ) -> None:
     """Authorization and API keys must never be exported as span data."""
+    # Assembled from fragments so a credential-shaped literal does not trip
+    # the repository's gitleaks scan; the value is identical at run time.
     fake_jwt = "eyJhbGciOiJIUzI1NiJ9" + "." + "eyJzdWIiOiIxIn0" + "." + "c2lnbmF0dXJl"
     fake_key = "sk-ant-api03-" + "A" * 24
 

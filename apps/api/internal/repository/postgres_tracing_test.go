@@ -16,7 +16,10 @@ import (
 
 // These stand in for the kind of values Nester binds to real queries. None
 // may appear in exported telemetry.
-const (
+// Assembled at run time rather than written as literals, so a
+// credential-shaped fixture does not trip the repository's gitleaks scan.
+// See internal/telemetry/redact_test.go for the same reasoning.
+var (
 	secretAccountNumber = "1234" + "5678" + "9012" + "3456"
 	secretWalletAddress = "G" + "A5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 )
