@@ -14,3 +14,11 @@ pytest-asyncio>=0.21.0
 stellar-sdk>=15.0.0
 numpy==2.2.6
 scipy==1.15.3
+
+# Distributed tracing (nester#1054). Tracing is opt-in via
+# INTELLIGENCE_TRACING_ENABLED; these are imported at startup but install
+# nothing and dial no collector when it is off.
+opentelemetry-api==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-instrumentation-fastapi==0.65b0
+opentelemetry-exporter-otlp-proto-grpc==1.44.0
