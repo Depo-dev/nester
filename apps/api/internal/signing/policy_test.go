@@ -480,13 +480,13 @@ func TestNetworkDigestDistinguishesNetworks(t *testing.T) {
 	// The intent commitment binds to the network through this digest, so two
 	// networks must not collide -- otherwise an audit record could not
 	// distinguish a testnet intent from a mainnet one.
-	if NetworkDigest(testNetwork) == NetworkDigest(otherNetwork) {
+	if NetworkDigest([]byte(testNetwork)) == NetworkDigest([]byte(otherNetwork)) {
 		t.Fatal("two different networks produced the same digest")
 	}
-	if NetworkDigest(testNetwork) != NetworkDigest(testNetwork) {
+	if NetworkDigest([]byte(testNetwork)) != NetworkDigest([]byte(testNetwork)) {
 		t.Fatal("the digest is not stable across calls")
 	}
-	if NetworkDigest(testNetwork) == testNetwork {
+	if NetworkDigest([]byte(testNetwork)) == testNetwork {
 		t.Fatal("the digest returned the passphrase unchanged")
 	}
 }
