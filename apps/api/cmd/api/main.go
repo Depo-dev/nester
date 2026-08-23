@@ -199,13 +199,51 @@ func run() error {
 	adminRepository := postgres.NewAdminRepository(db)
 	goalTemplateRepo := postgres.NewGoalTemplateRepository(db)
 
+	// Signing custody. Two configurations are supported, and which one is
+	// active is logged at startup so the deployed posture is visible rather
+	// than assumed.
+	//
+	//   - Isolated (recommended): SIGNER_SOCKET_PATH is set, the operator key
+	//     lives in the separate signer process, and this process holds none.
+	//   - Local: STELLAR_OPERATOR_SECRET is set here. Retained for local
+	//     development; see docs/security/signing-isolation.md for why it is not
+	//     the recommended production configuration.
 	var chainInvoker service.VaultChainInvoker
-	if secret := cfg.Stellar().OperatorSecret(); secret != "" {
+	switch {
+	case cfg.Stellar().SigningIsolated():
+		operatorAddress := cfg.Stellar().OperatorAddress()
+		if operatorAddress == "" {
+			return errors.New("STELLAR_OPERATOR_ADDRESS is required when signing is delegated to the signer process")
+		}
+		if cfg.Stellar().OperatorSecret() != "" {
+			// Holding the key while also delegating defeats the isolation: the
+			// key would still be extractable from this process. Refuse rather
+			// than silently preferring one path.
+			return errors.New("STELLAR_OPERATOR_SECRET must not be set when SIGNER_SOCKET_PATH is configured")
+		}
+		inv, err := service.NewIsolatedSorobanVaultChainInvoker(
+			cfg.Stellar().RPCURL(),
+			cfg.Stellar().HorizonURL(),
+			cfg.Stellar().NetworkPassphrase(),
+			operatorAddress,
+			cfg.Stellar().SignerSocketPath(),
+			cfg.Stellar().WithdrawalSlippageBps(),
+		)
+		if err != nil {
+			return fmt.Errorf("init isolated chain invoker: %w", err)
+		}
+		chainInvoker = inv
+		vaultService.SetDepositInvoker(inv)
+		baseLogger.Info("signing is isolated: this process holds no operator key",
+			"signer_socket", cfg.Stellar().SignerSocketPath(),
+			"operator_address", operatorAddress)
+
+	case cfg.Stellar().OperatorSecret() != "":
 		inv, err := service.NewSorobanVaultChainInvoker(
 			cfg.Stellar().RPCURL(),
 			cfg.Stellar().HorizonURL(),
 			cfg.Stellar().NetworkPassphrase(),
-			secret,
+			cfg.Stellar().OperatorSecret(),
 			cfg.Stellar().WithdrawalSlippageBps(),
 		)
 		if err != nil {
@@ -213,6 +251,11 @@ func run() error {
 		}
 		chainInvoker = inv
 		vaultService.SetDepositInvoker(inv)
+		baseLogger.Warn("signing key is held in the API process; " +
+			"see docs/security/signing-isolation.md for the isolated configuration")
+
+	default:
+		baseLogger.Info("no signing configured: chain write operations are unavailable")
 	}
 
 	adminService := service.NewAdminService(

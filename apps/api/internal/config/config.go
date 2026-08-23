@@ -136,10 +136,17 @@ type DatabaseConfig struct {
 }
 
 type StellarConfig struct {
-	networkPassphrase         string
-	rpcURL                    string
-	horizonURL                string
-	operatorSecret            string
+	networkPassphrase string
+	rpcURL            string
+	horizonURL        string
+	operatorSecret    string
+	// operatorAddress is the operator's PUBLIC address. It is required when
+	// signing is delegated to the isolated signer, because the API still builds
+	// transactions against the operator's source account but holds no key.
+	operatorAddress string
+	// signerSocketPath, when set, routes signing to the isolated signer process
+	// over a Unix domain socket instead of holding the key in this process.
+	signerSocketPath          string
 	stellarUSDCIssuer         string
 	yieldRegistryContract     string
 	allocationStrategyAddress string
@@ -234,6 +241,8 @@ func Load() (*Config, error) {
 			rpcURL:                    loader.requiredURL("STELLAR_RPC_URL"),
 			horizonURL:                loader.requiredURL("STELLAR_HORIZON_URL"),
 			operatorSecret:            loader.stringDefault("STELLAR_OPERATOR_SECRET", ""),
+			operatorAddress:           loader.stringDefault("STELLAR_OPERATOR_ADDRESS", ""),
+			signerSocketPath:          loader.stringDefault("SIGNER_SOCKET_PATH", ""),
 			stellarUSDCIssuer:         loader.stringDefault("STELLAR_USDC_ISSUER", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"),
 			yieldRegistryContract:     loader.stringDefault("YIELD_REGISTRY_CONTRACT", ""),
 			allocationStrategyAddress: loader.stringDefault("STELLAR_ALLOCATION_STRATEGY_ADDRESS", ""),
@@ -875,6 +884,24 @@ func (s StellarConfig) HorizonURL() string {
 
 func (s StellarConfig) OperatorSecret() string {
 	return s.operatorSecret
+}
+
+// OperatorAddress returns the operator's public Stellar address. It is public
+// data and grants no signing capability.
+func (s StellarConfig) OperatorAddress() string {
+	return s.operatorAddress
+}
+
+// SignerSocketPath returns the isolated signer's socket path, or empty when
+// signing is not delegated.
+func (s StellarConfig) SignerSocketPath() string {
+	return s.signerSocketPath
+}
+
+// SigningIsolated reports whether signing is delegated to the separate signer
+// process. When true this process holds no operator key.
+func (s StellarConfig) SigningIsolated() bool {
+	return strings.TrimSpace(s.signerSocketPath) != ""
 }
 
 func (s StellarConfig) YieldRegistryContract() string {

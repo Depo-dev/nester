@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/suncrestlabs/nester/apps/api/internal/signing"
 	"github.com/suncrestlabs/nester/apps/api/internal/stellar"
 )
 
@@ -12,6 +13,35 @@ import (
 type SorobanVaultChainInvoker struct {
 	invoker            *stellar.ContractInvoker
 	defaultSlippageBps int
+}
+
+// NewIsolatedSorobanVaultChainInvoker builds a chain invoker that delegates
+// signing to the standalone signer process over a Unix domain socket.
+//
+// This process holds no operator key: operatorAddress is the operator's public
+// address, needed only so transactions are built against the correct source
+// account. This is the recommended production configuration; see
+// docs/security/signing-isolation.md.
+func NewIsolatedSorobanVaultChainInvoker(
+	rpcURL, horizonURL, networkPassphrase, operatorAddress, signerSocketPath string,
+	defaultSlippageBps int,
+) (*SorobanVaultChainInvoker, error) {
+	client, err := signing.NewClient(signing.ClientOptions{SocketPath: signerSocketPath})
+	if err != nil {
+		return nil, fmt.Errorf("build signer client: %w", err)
+	}
+	remote, err := stellar.NewRemoteSigner(client, operatorAddress, networkPassphrase)
+	if err != nil {
+		return nil, fmt.Errorf("build remote signer: %w", err)
+	}
+	inv, err := stellar.NewContractInvokerWithSigner(rpcURL, horizonURL, networkPassphrase, remote)
+	if err != nil {
+		return nil, err
+	}
+	return &SorobanVaultChainInvoker{
+		invoker:            inv,
+		defaultSlippageBps: defaultSlippageBps,
+	}, nil
 }
 
 func NewSorobanVaultChainInvoker(
