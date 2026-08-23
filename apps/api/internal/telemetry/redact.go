@@ -82,9 +82,19 @@ var (
 	// anthropicKeyPattern matches an Anthropic API key.
 	anthropicKeyPattern = regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]+`)
 
-	// genericKeyPattern matches common API-key prefixes from the payment
-	// providers this codebase integrates with (Paystack, Flutterwave, Stripe).
+	// genericKeyPattern matches the sk_/pk_/rk_ key shape used by Paystack
+	// and Stripe.
 	genericKeyPattern = regexp.MustCompile(`(sk|pk|rk)_(live|test)_[A-Za-z0-9]+`)
+
+	// flutterwaveKeyPattern matches Flutterwave keys, which do not use the
+	// sk_/pk_ shape. FLUTTERWAVE_SECRET_KEY is read in internal/config, so
+	// this is a live credential format in this codebase, not a hypothetical.
+	flutterwaveKeyPattern = regexp.MustCompile(`FLW(SECK|PUBK)(_TEST)?-[A-Za-z0-9]+(-X)?`)
+
+	// webhookSecretPattern matches Stripe-style webhook signing secrets. The
+	// webhook subsystem stores and compares these, so one can reach an error
+	// string and from there a span.
+	webhookSecretPattern = regexp.MustCompile(`whsec_[A-Za-z0-9]+`)
 
 	// xdrPattern matches a base64-encoded XDR blob, the wire format for
 	// Stellar transactions. A signed envelope embeds the operator's signature
@@ -243,6 +253,8 @@ func RedactValue(value string) string {
 	redacted = bearerPattern.ReplaceAllString(redacted, RedactedPlaceholder)
 	redacted = anthropicKeyPattern.ReplaceAllString(redacted, RedactedPlaceholder)
 	redacted = genericKeyPattern.ReplaceAllString(redacted, RedactedPlaceholder)
+	redacted = flutterwaveKeyPattern.ReplaceAllString(redacted, RedactedPlaceholder)
+	redacted = webhookSecretPattern.ReplaceAllString(redacted, RedactedPlaceholder)
 	redacted = redactXDR(redacted)
 
 	return truncate(redacted)

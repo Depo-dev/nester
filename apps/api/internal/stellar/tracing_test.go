@@ -143,8 +143,12 @@ func assertNoSecretsInSpans(t *testing.T, spans tracetest.SpanStubs, operatorSec
 	}
 }
 
-// A successful invocation must produce a contract span carrying the contract
-// ID, the function name, and the transaction hash — and nothing secret.
+// A submit exercises the RPC round trips and the signing path — the one that
+// touches the operator key — and must leak nothing.
+//
+// InvokeVoidFunctionSubmit is used rather than InvokeVoidFunction because the
+// latter polls getTransaction on a 3s ticker. That means no soroban.invoke
+// contract span exists here; recordTxHash is covered separately below.
 func TestInvokeVoidFunctionSpanAttributes(t *testing.T) {
 	exporter := newInvokerSpanRecorder(t)
 	rpc := fakeSorobanRPC(t)
@@ -282,4 +286,62 @@ func TestRPCFailureIsRecordedWithoutSecrets(t *testing.T) {
 	}
 
 	assertNoSecretsInSpans(t, spans, operatorSecret, invoker.kp.Address())
+}
+
+// recordTxHash is exercised directly, since the submit-only path above never
+// opens a contract span. The hash is public once submitted and is how an
+// operator pivots from a trace to a block explorer.
+func TestRecordTxHashOnContractSpan(t *testing.T) {
+	exporter := newInvokerSpanRecorder(t)
+
+	const hash = "a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f801"
+
+	ctx, span := startContractSpan(context.Background(), "invoke", testContractID, testFunction)
+	recordTxHash(span, hash)
+	recordTxStatus(span, "SUCCESS")
+	span.End()
+	_ = ctx
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 contract span, got %d", len(spans))
+	}
+
+	attrs := map[string]string{}
+	for _, attr := range spans[0].Attributes {
+		attrs[string(attr.Key)] = attr.Value.AsString()
+	}
+
+	if got := attrs[string(attrContractID)]; got != testContractID {
+		t.Errorf("%s = %q, want %q", attrContractID, got, testContractID)
+	}
+	if got := attrs[string(attrFunction)]; got != testFunction {
+		t.Errorf("%s = %q, want %q", attrFunction, got, testFunction)
+	}
+	if got := attrs[string(attrTxHash)]; got != hash {
+		t.Errorf("%s = %q, want %q", attrTxHash, got, hash)
+	}
+	if got := attrs[string(attrTxStatus)]; got != "SUCCESS" {
+		t.Errorf("%s = %q, want SUCCESS", attrTxStatus, got)
+	}
+}
+
+// An empty hash or status must not create a misleading empty attribute.
+func TestRecordTxHashIgnoresEmptyValues(t *testing.T) {
+	exporter := newInvokerSpanRecorder(t)
+
+	_, span := startContractSpan(context.Background(), "invoke", testContractID, testFunction)
+	recordTxHash(span, "")
+	recordTxStatus(span, "")
+	span.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	for _, attr := range spans[0].Attributes {
+		if attr.Key == attrTxHash || attr.Key == attrTxStatus {
+			t.Errorf("empty value recorded as %s = %q", attr.Key, attr.Value.AsString())
+		}
+	}
 }

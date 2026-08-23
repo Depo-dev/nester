@@ -285,3 +285,26 @@ func TestIsSensitiveKeyBlocksSessionAndIdentifiers(t *testing.T) {
 		}
 	}
 }
+
+// Flutterwave keys and Stripe-style webhook secrets do not use the sk_/pk_
+// shape that genericKeyPattern matches. Both are live credential formats in
+// this codebase — FLUTTERWAVE_SECRET_KEY is read in internal/config and the
+// webhook subsystem handles whsec_ values — so both can reach an error string
+// and from there a span.
+func TestRedactValueStripsPaymentProviderKeys(t *testing.T) {
+	keys := []string{
+		"FLWSECK_TEST-" + strings.Repeat("a", 24) + "-X",
+		"FLWSECK-" + strings.Repeat("b", 24) + "-X",
+		"FLWPUBK-" + strings.Repeat("c", 24) + "-X",
+		"whsec_" + strings.Repeat("d", 28),
+	}
+	for _, key := range keys {
+		got := RedactValue("provider key=" + key + " rejected")
+		if strings.Contains(got, key) {
+			t.Errorf("payment provider key survived redaction: %q", got)
+		}
+		if !strings.Contains(got, RedactedPlaceholder) {
+			t.Errorf("expected a placeholder for %q, got %q", key, got)
+		}
+	}
+}
