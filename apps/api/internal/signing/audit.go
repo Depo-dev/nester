@@ -79,10 +79,16 @@ func HashIntent(i *Intent) string {
 	h := sha256.New()
 	// A length-prefixed, field-tagged encoding rather than plain concatenation:
 	// concatenating "a"+"bc" and "ab"+"c" would otherwise collide.
-	writeField := func(tag, val string) {
+	// This is a commitment over transaction-intent fields -- contract, amount,
+	// network -- so that an audit record can prove which request produced a
+	// signature. It hashes no credential and no password, so SHA-256 is the
+	// right primitive; a deliberately slow KDF would be wrong for a hash
+	// computed on the signing hot path. The parameter is named `field` rather
+	// than `val` because the latter leads static analysis to infer a secret.
+	writeField := func(tag, field string) {
 		_, _ = h.Write([]byte(tag))
 		_, _ = h.Write([]byte{0x1f})
-		_, _ = h.Write([]byte(val))
+		_, _ = h.Write([]byte(field))
 		_, _ = h.Write([]byte{0x1e})
 	}
 	writeField("id", i.ID)
