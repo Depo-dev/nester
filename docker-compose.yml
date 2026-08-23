@@ -105,7 +105,12 @@ services:
       retries: 5
       start_period: 10s
 
-  # --- Local observability (nester#1054) --------------------------------
+  # --- Local observability: tracing (nester#1054) -----------------------
+  #
+  # Note for whoever merges second: PR #1065 (#1043, metrics) adds
+  # `prometheus` and `grafana` under this same profile. The two stacks are
+  # complementary and share no ports or volume names, so a conflict here is
+  # textual only — keep both blocks and both sets of volumes.
   #
   # Started only with an explicit profile:
   #     docker compose --profile observability up

@@ -289,18 +289,52 @@ The reverse direction also works: every log line already carries
 
 ## Metrics exemplars
 
-**Not yet implemented — blocked on #1043.**
+**Not yet implemented — sequenced behind #1043 (PR #1065).**
 
 Issue #1054 asks for latency histograms to expose trace exemplars so an
-operator can go from a Prometheus spike to a representative trace. That
-requires the request and dependency metrics from #1043, which is still open.
-There is no metrics registry or `/metrics` endpoint on `dev` to attach
-exemplars to. (`internal/service/prometheus_client.go` is an LLM copy
-generator, not a metrics exporter.)
+operator can go from a Prometheus spike to a representative trace.
 
-Building a partial metrics layer purely to host exemplars would conflict with
-#1043's own design. When #1043 lands, exemplars attach by recording the
-current span's trace ID alongside each histogram observation.
+The metrics layer that exemplars attach to is implemented in
+[PR #1065](https://github.com/Suncrest-Labs/nester/pull/1065) for #1043, but
+that PR has not merged yet, so `dev` currently has no `internal/metrics`
+package and nothing to attach an exemplar to. This branch is built on `dev`
+and deliberately does not depend on an unmerged branch, so that the two PRs
+stay independently reviewable and can merge in either order.
+
+### What to do once #1065 has merged
+
+`client_golang` v1.24.1 (the version #1065 pins) supports exemplars natively.
+Wiring is small and touches only the metrics package:
+
+1. Change the histogram observation in `internal/metrics/http.go` from
+   `Observe(d)` to the exemplar-aware form:
+
+   ```go
+   observer := m.requestDuration.WithLabelValues(route, method)
+   if exemplarObserver, ok := observer.(prometheus.ExemplarObserver); ok {
+       if sc := trace.SpanContextFromContext(r.Context()); sc.IsSampled() {
+           exemplarObserver.ObserveWithExemplar(duration, prometheus.Labels{
+               "trace_id": sc.TraceID().String(),
+           })
+           return
+       }
+   }
+   observer.Observe(duration)
+   ```
+
+   The `IsSampled` guard matters: an exemplar pointing at a trace the sampler
+   discarded is a dead link in Grafana.
+
+2. Serve the exposition with `promhttp.HandlerOpts{EnableOpenMetrics: true}`.
+   Exemplars are an OpenMetrics feature and are silently dropped from the
+   classic Prometheus text format.
+
+3. Start Prometheus with `--enable-feature=exemplar-storage`, otherwise it
+   scrapes exemplars and discards them.
+
+Only `trace_id` belongs in an exemplar label set. Exemplar labels are exempt
+from normal cardinality limits, which makes them an easy place to leak a user
+ID or wallet address by accident.
 
 ---
 
