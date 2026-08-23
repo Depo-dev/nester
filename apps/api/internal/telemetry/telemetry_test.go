@@ -213,3 +213,60 @@ func newRecorder() *recorder {
 		exporter: exporter,
 	}
 }
+
+// A head ratio below 1.0 silently undercuts the collector's always-keep
+// guarantees: the tail sampler can only retain traces it actually receives.
+// It is the one sampling mistake with no visible symptom, so Init warns.
+func TestInitWarnsWhenHeadSamplingUnderminesTailRetention(t *testing.T) {
+	var logged strings.Builder
+	logger := slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	_, shutdown, err := Init(context.Background(), Config{
+		Enabled:         true,
+		Endpoint:        "127.0.0.1:1",
+		Insecure:        true,
+		ServiceName:     "nester-api-test",
+		ExporterTimeout: 200 * time.Millisecond,
+		SampleRatio:     0.05,
+	}, logger)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = shutdown(ctx)
+	}()
+
+	if !strings.Contains(logged.String(), "head sampling is below 1.0") {
+		t.Errorf("expected a head-sampling warning, got: %q", logged.String())
+	}
+}
+
+// At 1.0 the head keeps everything and the tail sampler is authoritative, so
+// there is nothing to warn about.
+func TestInitDoesNotWarnAtFullSampling(t *testing.T) {
+	var logged strings.Builder
+	logger := slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	_, shutdown, err := Init(context.Background(), Config{
+		Enabled:         true,
+		Endpoint:        "127.0.0.1:1",
+		Insecure:        true,
+		ServiceName:     "nester-api-test",
+		ExporterTimeout: 200 * time.Millisecond,
+		SampleRatio:     1.0,
+	}, logger)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = shutdown(ctx)
+	}()
+
+	if strings.Contains(logged.String(), "head sampling is below 1.0") {
+		t.Errorf("unexpected warning at full sampling: %q", logged.String())
+	}
+}

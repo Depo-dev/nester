@@ -141,6 +141,19 @@ func Init(ctx context.Context, cfg Config, logger *slog.Logger) (trace.TracerPro
 		"latency_threshold", cfg.LatencyThreshold.String(),
 	)
 
+	// The always-keep guarantees for errors and slow requests are enforced by
+	// the collector's tail sampler, which can only act on traces it receives.
+	// A head ratio below 1.0 drops traces before export, so those guarantees
+	// silently do not hold for the dropped fraction. This is the one sampling
+	// mistake with no visible symptom — the traces simply are not there — so
+	// it is surfaced at startup rather than left to the documentation.
+	if cfg.SampleRatio < 1 {
+		logger.Warn("head sampling is below 1.0; a tail sampler cannot retain traces the head already dropped",
+			"sample_ratio", cfg.SampleRatio,
+			"detail", "set TRACING_SAMPLE_RATIO=1.0 when exporting to a collector that performs tail sampling",
+		)
+	}
+
 	shutdown := func(ctx context.Context) error {
 		// Flush before shutdown so spans buffered at exit still reach the
 		// collector; both errors are reported but neither is fatal to the
