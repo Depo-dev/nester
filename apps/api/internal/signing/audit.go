@@ -69,12 +69,31 @@ type Sink interface {
 	Record(ctx context.Context, ev Event) error
 }
 
-// NetworkDigest returns a stable digest of a Stellar network passphrase.
+// NetworkDigest returns a stable digest of a Stellar network passphrase, used
+// to bind a signing intent to the network it targets.
 //
-// The passphrase is public -- it is a well-known constant, plaintext in
-// docker-compose.yml -- so this is a naming and clarity measure, not a
-// confidentiality one. Two intents on different networks produce different
-// digests, which is the property the commitment needs.
+// On the CodeQL go/weak-sensitive-data-hashing alert raised here: the rule fires
+// on any value whose name matches its password heuristic reaching a fast hash.
+// A Stellar network passphrase is not a password and not a secret -- it is a
+// published protocol constant ("Test SDF Network ; September 2015"), present in
+// plaintext in this repository's own docker-compose.yml and in every Stellar
+// client. There is nothing to protect from an offline guessing attack, which is
+// the threat a slow KDF exists to address.
+//
+// SHA-256 is the correct primitive for this use. The requirement is a stable,
+// collision-resistant commitment computed on the signing hot path, where a
+// deliberately expensive KDF would add latency to every signature for no
+// security benefit whatsoever.
+//
+// The alert was first addressed by renaming the values involved; the rule
+// tracks the parameter name, so each rename relocated the alert rather than
+// resolving it. Contorting the code further to satisfy a name-based heuristic
+// would make it less clear, so the finding is suppressed here with its
+// reasoning stated in full rather than chased through the call graph.
+//
+// codeql[go/weak-sensitive-data-hashing] -- a Stellar network passphrase is a
+// public protocol constant, not a credential; this is a commitment hash on the
+// signing hot path, where a slow KDF would be the wrong primitive.
 func NetworkDigest(passphrase string) string {
 	sum := sha256.Sum256([]byte(passphrase))
 	return hex.EncodeToString(sum[:8])
