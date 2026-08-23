@@ -105,6 +105,51 @@ services:
       retries: 5
       start_period: 10s
 
+  # --- Local observability (nester#1054) --------------------------------
+  #
+  # Started only with an explicit profile:
+  #     docker compose --profile observability up
+  #
+  # Both services are profile-gated, so a normal `docker compose up` is
+  # unchanged and tracing infrastructure is never a startup dependency for
+  # ordinary development.
+  #
+  # To send traces, run the app services with tracing switched on:
+  #     TRACING_ENABLED=true INTELLIGENCE_TRACING_ENABLED=true   #       docker compose --profile observability up
+  #
+  # Then open the Jaeger UI at http://localhost:16686 and pick the
+  # "nester-api" or "nester-intelligence" service.
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    profiles: ["observability"]
+    ports:
+      # Jaeger UI.
+      - "16686:16686"
+    environment:
+      # Jaeger accepts OTLP directly; the collector forwards to it here.
+      COLLECTOR_OTLP_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:16686/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    profiles: ["observability"]
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./deploy/observability/otel-collector.yaml:/etc/otel/config.yaml:ro
+    ports:
+      # OTLP gRPC — what both services export to by default.
+      - "4317:4317"
+      # OTLP HTTP, for tools that cannot speak gRPC.
+      - "4318:4318"
+    depends_on:
+      jaeger:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   go_mod_cache:
