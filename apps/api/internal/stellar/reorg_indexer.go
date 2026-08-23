@@ -11,9 +11,9 @@ import (
 )
 
 var (
-	ErrReorgDetected      = errors.New("ledger reorganization detected")
-	ErrReorgTooDeep       = errors.New("reorg depth exceeds tolerance")
-	ErrDuplicateEvent     = errors.New("duplicate event")
+	ErrReorgDetected     = errors.New("ledger reorganization detected")
+	ErrReorgTooDeep      = errors.New("reorg depth exceeds tolerance")
+	ErrDuplicateEvent    = errors.New("duplicate event")
 	ErrCheckpointMismatch = errors.New("checkpoint hash mismatch")
 )
 
@@ -23,11 +23,11 @@ const (
 )
 
 type LedgerCheckpoint struct {
-	Sequence    uint64
-	Hash        string
-	ParentHash  string
-	ProcessedAt time.Time
-	IsFinalized bool
+	Sequence     uint64
+	Hash         string
+	ParentHash   string
+	ProcessedAt  time.Time
+	IsFinalized  bool
 }
 
 type EventKey struct {

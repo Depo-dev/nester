@@ -293,7 +293,7 @@ func TestSettlementHandler_Get200And404(t *testing.T) {
 			AccountName:   "Jane",
 		},
 	})
-
+	
 	respNonOwner, err := http.Get(server.URL + "/api/v1/settlements/" + created2.ID.String())
 	if err != nil {
 		t.Fatalf("GET: %v", err)

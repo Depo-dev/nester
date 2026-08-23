@@ -56,7 +56,7 @@ type transactionView struct {
 }
 
 type listTransactionsData struct {
-	Data       []transactionView     `json:"data"`
+	Data       []transactionView    `json:"data"`
 	Pagination transactionPagination `json:"pagination"`
 }
 

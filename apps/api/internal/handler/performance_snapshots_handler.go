@@ -45,9 +45,9 @@ func (h *PerformanceSnapshotsHandler) list(w http.ResponseWriter, r *http.Reques
 	}
 
 	response.WriteJSON(w, http.StatusOK, response.OK(map[string]any{
-		"snapshots":           analytics.DailySnapshots,
-		"performance_metrics": analytics.PerformanceMetrics,
-		"current_allocation":  analytics.CurrentAllocation,
-		"vaults":              analytics.Vaults,
+		"snapshots":            analytics.DailySnapshots,
+		"performance_metrics":  analytics.PerformanceMetrics,
+		"current_allocation":   analytics.CurrentAllocation,
+		"vaults":               analytics.Vaults,
 	}))
 }
