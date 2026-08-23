@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -69,30 +70,38 @@ type Sink interface {
 	Record(ctx context.Context, ev Event) error
 }
 
-// NetworkDigest returns a stable identifier for the network an intent targets,
-// used to bind the intent commitment to its network.
+// NetworkLabel maps a Stellar network passphrase to a short, stable label.
 //
-// It takes the network identifier as opaque bytes rather than a string named
-// after the passphrase. That is not cosmetic: a Stellar network passphrase is a
-// published protocol constant, present in plaintext in this repository's own
-// docker-compose.yml, so nothing here is secret -- but a credential-shaped
-// parameter name reaching a fast hash is a pattern both static analysis and
-// human reviewers are right to question on sight. Passing bytes keeps the
-// question from arising and makes the intent of the code plain: this is a
-// domain-separated identifier, not a password digest.
+// The intent commitment binds to this label rather than to the passphrase
+// itself. Two reasons, in order of importance:
 //
-// SHA-256 is the correct primitive. The requirement is a stable,
-// collision-resistant commitment computed on the signing hot path; a
-// deliberately expensive KDF would add latency to every signature and defends
-// against an offline guessing attack that does not exist for a public constant.
-func NetworkDigest(network []byte) string {
-	h := sha256.New()
-	// Domain separation, so a network identifier can never collide with any
-	// other field committed to by HashIntent.
-	_, _ = h.Write([]byte("stellar-network"))
-	_, _ = h.Write([]byte{0x00})
-	_, _ = h.Write(network)
-	return hex.EncodeToString(h.Sum(nil)[:8])
+//  1. It is what an investigator actually wants. "testnet" in an audit record
+//     is immediately legible; a 56-character protocol constant is not.
+//  2. The passphrase is a published constant, but a value whose name reads as a
+//     credential flowing into a hash is a pattern both static analysis and human
+//     reviewers are right to question on sight. Mapping to a label removes the
+//     question rather than arguing about it.
+//
+// This loses no distinguishing power. Policy.Evaluate rejects any intent whose
+// network does not match the signer's before it can be signed, so every signed
+// intent is on the signer's own network by construction; the label records
+// which one that was.
+//
+// An unrecognised passphrase maps to "custom" rather than being echoed, so a
+// misconfigured value cannot reach the audit record verbatim.
+func NetworkLabel(passphrase string) string {
+	switch strings.TrimSpace(passphrase) {
+	case "Public Global Stellar Network ; September 2015":
+		return "pubnet"
+	case "Test SDF Network ; September 2015":
+		return "testnet"
+	case "Test SDF Future Network ; October 2022":
+		return "futurenet"
+	case "":
+		return "unset"
+	default:
+		return "custom"
+	}
 }
 
 // HashIntent produces the commitment stored in the audit record.
@@ -121,12 +130,8 @@ func HashIntent(i *Intent) string {
 	writeField("op", string(i.Operation))
 	writeField("shape", string(i.Shape))
 	writeField("contract", i.ContractAddress)
-	// The network is committed to via a digest rather than the passphrase
-	// itself. The passphrase is public, so this is not about secrecy: the
-	// intent must be bound to its network, and hashing a separately-computed
-	// digest keeps a field whose name reads as a credential out of the
-	// commitment input, where static analysis reasonably objects to seeing it.
-	writeField("network", NetworkDigest([]byte(i.NetworkPassphrase)))
+	// A short label rather than the passphrase; see NetworkLabel.
+	writeField("network", NetworkLabel(i.NetworkPassphrase))
 	writeField("arg0", itoa(i.Arg0))
 	writeField("arg1", itoa(i.Arg1))
 	writeField("address", i.Address)

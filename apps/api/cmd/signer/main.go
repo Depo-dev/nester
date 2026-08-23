@@ -87,7 +87,7 @@ func run(logger *slog.Logger) error {
 
 	logger.Info("signer starting",
 		"key_id", backend.KeyID(),
-		"network", networkName(cfg.networkPassphrase),
+		"network", signing.NetworkLabel(cfg.networkPassphrase),
 		"allowed_contracts", len(cfg.allowedContracts),
 		"allowed_operations", len(cfg.allowedOperations),
 		"max_amount_stroops", cfg.maxAmountStroops,
@@ -319,27 +319,4 @@ func parseFileMode(raw string, def os.FileMode) (os.FileMode, error) {
 // tlsListener wraps a TCP listener in the signer's mutual-TLS configuration.
 func tlsListener(inner net.Listener, cfg *tls.Config) net.Listener {
 	return tls.NewListener(inner, cfg)
-}
-
-// networkName maps a Stellar network passphrase to a short label for logging.
-//
-// The passphrase itself is public -- it is a well-known constant, plaintext in
-// docker-compose.yml -- but it is not useful in a log line and its name reads
-// like a credential to both static analysis and reviewers. Logging a short
-// label removes the ambiguity and is more legible operationally. An unknown
-// passphrase is reported as "custom" rather than echoed, so a misconfigured
-// value cannot inject arbitrary text into the log.
-func networkName(passphrase string) string {
-	switch strings.TrimSpace(passphrase) {
-	case "Public Global Stellar Network ; September 2015":
-		return "pubnet"
-	case "Test SDF Network ; September 2015":
-		return "testnet"
-	case "Test SDF Future Network ; October 2022":
-		return "futurenet"
-	case "":
-		return "unset"
-	default:
-		return "custom"
-	}
 }

@@ -476,17 +476,22 @@ func TestHashIntentFieldSeparation(t *testing.T) {
 	}
 }
 
-func TestNetworkDigestDistinguishesNetworks(t *testing.T) {
-	// The intent commitment binds to the network through this digest, so two
-	// networks must not collide -- otherwise an audit record could not
-	// distinguish a testnet intent from a mainnet one.
-	if NetworkDigest([]byte(testNetwork)) == NetworkDigest([]byte(otherNetwork)) {
-		t.Fatal("two different networks produced the same digest")
+func TestNetworkLabelDistinguishesNetworksAndNeverEchoes(t *testing.T) {
+	// The intent commitment binds to this label, so two networks must not
+	// collide -- otherwise an audit record could not tell a testnet intent from
+	// a mainnet one.
+	if NetworkLabel(testNetwork) == NetworkLabel(otherNetwork) {
+		t.Fatal("two different networks produced the same label")
 	}
-	if NetworkDigest([]byte(testNetwork)) != NetworkDigest([]byte(testNetwork)) {
-		t.Fatal("the digest is not stable across calls")
+	if NetworkLabel(testNetwork) != "testnet" {
+		t.Fatalf("expected testnet, got %q", NetworkLabel(testNetwork))
 	}
-	if NetworkDigest([]byte(testNetwork)) == testNetwork {
-		t.Fatal("the digest returned the passphrase unchanged")
+	if NetworkLabel(otherNetwork) != "pubnet" {
+		t.Fatalf("expected pubnet, got %q", NetworkLabel(otherNetwork))
+	}
+	// An unrecognised value must not reach the audit record verbatim.
+	unknown := "SOME-MISCONFIGURED-VALUE"
+	if got := NetworkLabel(unknown); got == unknown {
+		t.Fatalf("NetworkLabel echoed its input: %q", got)
 	}
 }
