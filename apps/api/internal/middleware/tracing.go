@@ -35,15 +35,18 @@ import (
 // been populated. This is the documented approach for net/http and avoids
 // the high-cardinality trap without needing the router to be Chi.
 func Tracing(serviceName string, latencyThreshold time.Duration) func(http.Handler) http.Handler {
-	propagator := otel.GetTextMapPropagator()
-
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Continue an upstream trace when the caller supplied one. This is
-			// the receiving half of W3C propagation; the Go API is normally
-			// the root, but a gateway or another internal service may already
-			// have started the trace.
-			ctx := propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+			// Continue an upstream trace when the caller supplied one. This
+			// is the receiving half of W3C propagation.
+			//
+			// The propagator is resolved per request, not at construction:
+			// telemetry.Init installs the global one, and if the router is
+			// assembled first this middleware would otherwise capture a no-op
+			// propagator permanently and silently discard every inbound
+			// traceparent. Spans would still be produced, just detached from
+			// the caller's trace. The lookup is an atomic load.
+			ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 
 			// Provisional name: method plus the matched pattern is not yet
 			// available. Renamed below once the mux has routed.

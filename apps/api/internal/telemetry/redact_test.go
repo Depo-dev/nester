@@ -25,24 +25,29 @@ var (
 )
 
 func TestRedactValueStripsSecrets(t *testing.T) {
+	// The secret is tracked separately from the input. Asserting only on the
+	// whole input is too weak for the embedded cases: any change to the
+	// surrounding text satisfies it, so a redactor that stripped the word
+	// "secret" and left the seed intact would still pass.
 	tests := []struct {
-		name  string
-		input string
+		name   string
+		input  string
+		secret string
 	}{
-		{"stellar secret seed", fakeStellarSecret},
-		{"jwt", fakeJWT},
-		{"anthropic api key", fakeAnthropicKey},
-		{"paystack secret key", fakePaystackKey},
-		{"bearer header", "Bearer " + fakeJWT},
-		{"secret embedded in error text", "invalid operator secret: " + fakeStellarSecret},
-		{"jwt embedded in url", "https://api.example.com/cb?token=" + fakeJWT},
+		{"stellar secret seed", fakeStellarSecret, fakeStellarSecret},
+		{"jwt", fakeJWT, fakeJWT},
+		{"anthropic api key", fakeAnthropicKey, fakeAnthropicKey},
+		{"paystack secret key", fakePaystackKey, fakePaystackKey},
+		{"bearer header", "Bearer " + fakeJWT, fakeJWT},
+		{"secret embedded in error text", "invalid operator secret: " + fakeStellarSecret, fakeStellarSecret},
+		{"jwt embedded in url", "https://api.example.com/cb?token=" + fakeJWT, fakeJWT},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := RedactValue(tc.input)
-			if strings.Contains(got, tc.input) && tc.input != "" {
-				t.Fatalf("RedactValue returned the raw secret: %q", got)
+			if strings.Contains(got, tc.secret) {
+				t.Fatalf("RedactValue leaked the secret: %q", got)
 			}
 			if !strings.Contains(got, RedactedPlaceholder) {
 				t.Fatalf("RedactValue(%q) = %q, expected it to contain %q", tc.name, got, RedactedPlaceholder)

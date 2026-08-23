@@ -65,13 +65,13 @@ func applyPerformanceMigrations(t *testing.T, db *sql.DB) {
 // newTestSnapshot returns a minimal valid snapshot for the given vault.
 func newTestSnapshot(vaultID uuid.UUID, snapshotAt time.Time) performance.Snapshot {
 	return performance.Snapshot{
-		ID:              uuid.New(),
-		VaultID:         vaultID,
-		TotalBalance:    decimal.RequireFromString("1000.00"),
-		TotalDeposited:  decimal.RequireFromString("950.00"),
+		ID:               uuid.New(),
+		VaultID:          vaultID,
+		TotalBalance:     decimal.RequireFromString("1000.00"),
+		TotalDeposited:   decimal.RequireFromString("950.00"),
 		TotalYieldEarned: decimal.RequireFromString("50.00"),
-		SharePrice:      decimal.RequireFromString("1.0526"),
-		SnapshotAt:      snapshotAt,
+		SharePrice:       decimal.RequireFromString("1.0526"),
+		SnapshotAt:       snapshotAt,
 	}
 }
 
@@ -130,13 +130,13 @@ func TestSaveSnapshot_withNullOnChainBalance(t *testing.T) {
 	// Simulate BalanceProvider returning zero/unavailable by using the
 	// last-known DB-cached balance (TotalBalance) directly.
 	snap := performance.Snapshot{
-		ID:              uuid.New(),
-		VaultID:         vaultID,
-		TotalBalance:    decimal.RequireFromString("800.00"), // DB-cached value
-		TotalDeposited:  decimal.RequireFromString("800.00"),
+		ID:               uuid.New(),
+		VaultID:          vaultID,
+		TotalBalance:     decimal.RequireFromString("800.00"), // DB-cached value
+		TotalDeposited:   decimal.RequireFromString("800.00"),
 		TotalYieldEarned: decimal.Zero,
-		SharePrice:      decimal.RequireFromString("1.0000"),
-		SnapshotAt:      time.Now().UTC().Truncate(time.Microsecond),
+		SharePrice:       decimal.RequireFromString("1.0000"),
+		SnapshotAt:       time.Now().UTC().Truncate(time.Microsecond),
 	}
 
 	got, err := repo.Insert(ctx, snap)

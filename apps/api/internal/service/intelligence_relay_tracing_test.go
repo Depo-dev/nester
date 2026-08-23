@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/suncrestlabs/nester/apps/api/internal/service"
+	"github.com/suncrestlabs/nester/apps/api/internal/telemetry"
 	logpkg "github.com/suncrestlabs/nester/apps/api/pkg/logger"
 )
 
@@ -222,5 +224,62 @@ func TestRelayUpstreamFailureClosesSpan(t *testing.T) {
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("expected the relay span to be closed even on failure, got %d spans", len(spans))
+	}
+
+	// Asserting only that a span exists is what let missing RecordError calls
+	// through: a span with UNSET status is invisible to error-based tail
+	// sampling, so the failure would never be retained.
+	span := spans[0]
+	if span.Status.Code != codes.Error {
+		t.Errorf("relay span status = %v, want Error; an unmarked failure is dropped by tail sampling", span.Status.Code)
+	}
+
+	var retained bool
+	for _, attr := range span.Attributes {
+		if attr.Key == telemetry.RetentionAttributeKey && attr.Value.AsBool() {
+			retained = true
+		}
+	}
+	if !retained {
+		t.Error("failed relay call was not marked for retention")
+	}
+}
+
+// An upstream 5xx is not a Go error, so it has to be marked on the span
+// explicitly or the trace looks successful.
+func TestRelayUpstream5xxMarksSpanErrored(t *testing.T) {
+	exporter := newRelaySpanRecorder(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"boom"}`))
+	}))
+	defer upstream.Close()
+
+	handler := service.NewRelayHandler(upstream.Client(), service.RelayConfig{
+		BaseURL: upstream.URL,
+		Timeout: 5 * time.Second,
+	})
+
+	body, _ := json.Marshal(service.ChatRequest{Message: "hello"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/intelligence/chat", strings.NewReader(string(body)))
+	ctx := service.WithViewer(req.Context(), service.Viewer{
+		UserID:        "user-1",
+		WalletAddress: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+	})
+
+	recorder := httptest.NewRecorder()
+	handler.RelayChat(recorder, req.WithContext(ctx))
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Errorf("status = %d, want 502; existing behaviour must be preserved", recorder.Code)
+	}
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	if spans[0].Status.Code != codes.Error {
+		t.Errorf("span status = %v, want Error for an upstream 5xx", spans[0].Status.Code)
 	}
 }

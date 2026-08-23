@@ -45,7 +45,9 @@ func newPGSpanRecorder(t *testing.T) *tracetest.InMemoryExporter {
 // tracer under test is constructed with the same options NewPostgresDBTraced
 // applies, so a change to those options fails this test.
 func tracerUnderTest() *otelpgx.Tracer {
-	return otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName())
+	// The production options, not a copy of them, so adding an unsafe option
+	// there fails these tests rather than slipping past a parallel list.
+	return otelpgx.NewTracer(pgxTracerOptions()...)
 }
 
 func exportedText(span tracetest.SpanStub) string {

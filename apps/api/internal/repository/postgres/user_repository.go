@@ -111,21 +111,21 @@ type userScanner interface {
 
 func scanUser(row userScanner) (*user.User, error) {
 	var (
-		id                 string
-		walletAddress      string
-		displayName        string
-		kycStatus          string
-		tier               string
-		kycSubmittedAt     sql.NullTime
-		kycReviewedAt      sql.NullTime
-		kycRejectionReason sql.NullString
-    riskProfile         sql.NullString
+		id                  string
+		walletAddress       string
+		displayName         string
+		kycStatus           string
+		tier                string
+		kycSubmittedAt      sql.NullTime
+		kycReviewedAt       sql.NullTime
+		kycRejectionReason  sql.NullString
+		riskProfile         sql.NullString
 		savingsGoal         sql.NullString
 		onboardingCompleted bool
-		lastLoginAt        sql.NullTime
-		timezone           string
-		createdAt          time.Time
-		updatedAt          time.Time
+		lastLoginAt         sql.NullTime
+		timezone            string
+		createdAt           time.Time
+		updatedAt           time.Time
 	)
 
 	if err := row.Scan(
@@ -185,21 +185,21 @@ func scanUser(row userScanner) (*user.User, error) {
 	}
 
 	return &user.User{
-		ID:                 parsedID,
-		WalletAddress:      walletAddress,
-		DisplayName:        displayName,
-		KYCStatus:          user.KYCStatus(kycStatus),
-		Tier:               tier,
-		KYCSubmittedAt:     kycSubAtPtr,
-		KYCReviewedAt:      kycRevAtPtr,
-		KYCRejectionReason: kycRejReasonPtr,
-    RiskProfile:         riskPtr,
+		ID:                  parsedID,
+		WalletAddress:       walletAddress,
+		DisplayName:         displayName,
+		KYCStatus:           user.KYCStatus(kycStatus),
+		Tier:                tier,
+		KYCSubmittedAt:      kycSubAtPtr,
+		KYCReviewedAt:       kycRevAtPtr,
+		KYCRejectionReason:  kycRejReasonPtr,
+		RiskProfile:         riskPtr,
 		SavingsGoal:         savingsPtr,
 		OnboardingCompleted: onboardingCompleted,
-		LastLoginAt:        lastLoginAtPtr,
-		Timezone:           timezone,
-		CreatedAt:          createdAt,
-		UpdatedAt:          updatedAt,
+		LastLoginAt:         lastLoginAtPtr,
+		Timezone:            timezone,
+		CreatedAt:           createdAt,
+		UpdatedAt:           updatedAt,
 	}, nil
 }
 
@@ -322,9 +322,9 @@ func (r *UserRepository) ScanKYCDocumentsForBackfill(ctx context.Context, limit 
 	var out []KYCBackfillRow
 	for rows.Next() {
 		var (
-			id                       string
-			idNum, frontKey          string
-			backKey                  sql.NullString
+			id              string
+			idNum, frontKey string
+			backKey         sql.NullString
 		)
 		if err := rows.Scan(&id, &idNum, &frontKey, &backKey); err != nil {
 			return nil, err
@@ -389,10 +389,10 @@ func (r *UserRepository) ScanPendingKYCEncryption(ctx context.Context, activeVer
 	var out []rotation.EncryptedRow
 	for rows.Next() {
 		var (
-			id                     string
-			idNumEnc, frontKeyEnc  []byte
-			backKeyEnc             []byte
-			keyVersion             string
+			id                    string
+			idNumEnc, frontKeyEnc []byte
+			backKeyEnc            []byte
+			keyVersion            string
 		)
 		if err := rows.Scan(&id, &idNumEnc, &frontKeyEnc, &backKeyEnc, &keyVersion); err != nil {
 			return nil, err

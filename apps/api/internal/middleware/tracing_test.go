@@ -29,9 +29,15 @@ func newSpanRecorder(t *testing.T) *tracetest.InMemoryExporter {
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithSyncer(exporter),
 	)
-	previous := otel.GetTracerProvider()
+	previousProvider := otel.GetTracerProvider()
+	previousPropagator := otel.GetTextMapPropagator()
 	otel.SetTracerProvider(provider)
-	t.Cleanup(func() { otel.SetTracerProvider(previous) })
+	// The propagator is restored too: tests that install one would otherwise
+	// leak it into every test that runs after them.
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previousProvider)
+		otel.SetTextMapPropagator(previousPropagator)
+	})
 	return exporter
 }
 
@@ -294,6 +300,15 @@ func TestTracingPreservesResponseWriterCapabilities(t *testing.T) {
 // Tracing must be transparent when no provider is configured (the default
 // no-op case) — the request must still be served normally.
 func TestTracingIsTransparentWithNoopProvider(t *testing.T) {
+	// Init replaces the global provider and propagator; both are restored so
+	// this test cannot affect the ones that follow it.
+	previousProvider := otel.GetTracerProvider()
+	previousPropagator := otel.GetTextMapPropagator()
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previousProvider)
+		otel.SetTextMapPropagator(previousPropagator)
+	})
+
 	_, _, err := telemetry.Init(context.Background(), telemetry.Config{Enabled: false}, quietLogger())
 	if err != nil {
 		t.Fatalf("Init: %v", err)

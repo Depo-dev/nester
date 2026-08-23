@@ -31,10 +31,10 @@ func (r *SavingsStreakRepository) Get(ctx context.Context, userID uuid.UUID) (*s
 	`, userID)
 
 	var (
-		uid             string
-		current, longest int
-		lastWeek        string
-		milestones      pq.Int32Array
+		uid                  string
+		current, longest     int
+		lastWeek             string
+		milestones           pq.Int32Array
 		createdAt, updatedAt interface{}
 	)
 	if err := row.Scan(&uid, &current, &longest, &lastWeek, &milestones, &createdAt, &updatedAt); err != nil {

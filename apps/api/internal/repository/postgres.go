@@ -36,6 +36,21 @@ func NewPostgresDBTraced(cfg config.DatabaseConfig) (*PostgresDB, error) {
 	return newPostgresDB(cfg, true)
 }
 
+// pgxTracerOptions are the otelpgx options the traced pool uses.
+//
+// Defined once and shared with the tracing tests so the test cannot drift from
+// production. That matters for the privacy contract specifically: if someone
+// later adds otelpgx.WithIncludeQueryParameters() here, the tests that assert
+// bound values never reach a span will fail, instead of silently continuing to
+// exercise a differently-configured tracer.
+func pgxTracerOptions() []otelpgx.Option {
+	return []otelpgx.Option{
+		// IncludeQueryParameters is deliberately absent: bound arguments are
+		// account numbers, balances, wallet addresses and amounts.
+		otelpgx.WithTrimSQLInSpanName(),
+	}
+}
+
 func newPostgresDB(cfg config.DatabaseConfig, tracingEnabled bool) (*PostgresDB, error) {
 	poolConfig, err := pgxpool.ParseConfig(cfg.DSN())
 	if err != nil {
@@ -54,9 +69,7 @@ func newPostgresDB(cfg config.DatabaseConfig, tracingEnabled bool) (*PostgresDB,
 	if tracingEnabled {
 		// IncludeQueryParameters is deliberately not set: bound parameters
 		// are user financial data and must never reach a span.
-		poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(
-			otelpgx.WithTrimSQLInSpanName(),
-		)
+		poolConfig.ConnConfig.Tracer = otelpgx.NewTracer(pgxTracerOptions()...)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ConnectionTimeout())
