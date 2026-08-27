@@ -3,7 +3,7 @@ package middleware
 import (
 	"context"
 	"crypto/subtle"
-	"fmt"
+	"encoding/json"
 	"log/slog"
 	"math"
 	"net/http"
@@ -30,7 +30,7 @@ import (
 // quotaBypassHeader lets a load test opt out of quota accounting on a
 // per-request basis. Inert unless a bypass token is configured; see
 // QuotaConfig.BypassToken.
-const quotaBypassHeader = "X-RateLimit-Bypass"
+const quotaBypassHeader = "X-RateLimit-Bypass" // #nosec G101 -- the name of a header, not a credential; the token it carries is compared against QuotaConfig.BypassToken
 
 // quotaKeyTTLFactor is how many windows an idle bucket survives in Redis before
 // expiring. An expired bucket is indistinguishable from a full one, which is
@@ -492,12 +492,45 @@ func writeQuotaExhausted(w http.ResponseWriter, d QuotaDecision, cost int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusTooManyRequests)
 
-	fmt.Fprintf(w,
-		`{"success":false,"error":{"code":429,"message":"request cost quota exhausted",`+
-			`"reason":"QUOTA_EXHAUSTED","quota":"request-cost","cost":%d,"limit":%d,`+
-			`"remaining":%d,"retry_after_seconds":%d,"reset_seconds":%d}}`,
-		cost, d.Limit, max(d.Remaining, 0), retryAfter, secondsCeil(d.Reset),
-	)
+	// Marshalled from a typed value rather than formatted into the response
+	// writer: every field here is an integer we computed, but hand-built JSON
+	// on an http.ResponseWriter is indistinguishable from the injectable kind
+	// to a reader and to static analysis, and encoding/json is what the rest
+	// of the package uses.
+	body := quotaExhaustedBody{Success: false}
+	body.Error.Code = http.StatusTooManyRequests
+	body.Error.Message = "request cost quota exhausted"
+	body.Error.Reason = "QUOTA_EXHAUSTED"
+	body.Error.Quota = "request-cost"
+	body.Error.Cost = cost
+	body.Error.Limit = d.Limit
+	body.Error.Remaining = max(d.Remaining, 0)
+	body.Error.RetryAfterSeconds = retryAfter
+	body.Error.ResetSeconds = secondsCeil(d.Reset)
+
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		// The status line and headers are already on the wire, so there is
+		// nothing left to tell the client. The caller sees a truncated body
+		// and retries, which is the same outcome as a dropped connection.
+		return
+	}
+}
+
+// quotaExhaustedBody is the 429 payload. It mirrors the envelope the rest of
+// the API returns so a client can parse errors one way.
+type quotaExhaustedBody struct {
+	Success bool `json:"success"`
+	Error   struct {
+		Code              int    `json:"code"`
+		Message           string `json:"message"`
+		Reason            string `json:"reason"`
+		Quota             string `json:"quota"`
+		Cost              int    `json:"cost"`
+		Limit             int    `json:"limit"`
+		Remaining         int    `json:"remaining"`
+		RetryAfterSeconds int    `json:"retry_after_seconds"`
+		ResetSeconds      int    `json:"reset_seconds"`
+	} `json:"error"`
 }
 
 // secondsCeil rounds a duration up to whole seconds, never below zero.
