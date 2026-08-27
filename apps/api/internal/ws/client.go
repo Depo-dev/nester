@@ -76,16 +76,14 @@ func (c *Client) readPump() {
 	}
 }
 
-// pong answers an application-level ping (see EventPong). It is a
-// non-blocking send: if the client's buffer is already full the connection
-// is by definition not keeping up, and withholding the pong lets the
-// client's own heartbeat timeout tear the link down and reconnect — which
-// is the outcome we want anyway.
+// pong answers an application-level ping (see EventPong).
+//
+// The send goes through the hub rather than straight to c.send: the hub owns
+// that channel's lifetime and closes it during unregister and shutdown, and
+// this is the read pump, which runs concurrently with both. See
+// Hub.sendToClient.
 func (c *Client) pong() {
-	select {
-	case c.send <- Event{Type: EventPong, Timestamp: time.Now()}:
-	default:
-	}
+	c.hub.sendToClient(c, Event{Type: EventPong, Timestamp: time.Now()})
 }
 
 // writePump pumps messages from the hub to the websocket connection.
