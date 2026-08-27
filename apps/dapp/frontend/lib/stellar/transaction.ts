@@ -5,6 +5,7 @@ import {
   TransactionBuilder,
   BASE_FEE,
   nativeToScVal,
+  scValToNative,
   Address,
 } from "@stellar/stellar-sdk";
 
@@ -177,6 +178,55 @@ export async function estimateDepositFee(
       feeXlm: 0,
       available: false,
       error: err instanceof Error ? err.message : "Fee estimation unavailable",
+    };
+  }
+}
+
+/**
+ * Preview expected vault shares for a deposit amount, via the vault
+ * contract's read-only `preview_deposit` (Issue #1129) — simulated against
+ * the live contract instead of assuming a 1:1 amount-to-shares ratio.
+ */
+export async function previewDeposit(params: DepositParams): Promise<{
+  sharesExpected: bigint;
+  available: boolean;
+  error?: string;
+}> {
+  try {
+    const { walletAddress, contractId, amount: rawAmount } = params;
+    const network = getCurrentNetwork();
+    const server = getServer(network.rpcUrl);
+    const account = await server.getAccount(walletAddress);
+
+    const amountStroops = typeof rawAmount === "bigint"
+      ? rawAmount
+      : BigInt(Math.round(rawAmount * 10_000_000));
+
+    const contract = new Contract(contractId);
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: network.networkPassphrase,
+    })
+      .addOperation(
+        contract.call("preview_deposit", nativeToScVal(amountStroops, { type: "i128" }))
+      )
+      .setTimeout(30)
+      .build();
+
+    const sim = await server.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationError(sim)) {
+      throw new TransactionFailedError(
+        (sim as SorobanRpc.Api.SimulateTransactionErrorResponse).error
+      );
+    }
+    const result = (sim as SorobanRpc.Api.SimulateTransactionSuccessResponse).result;
+    const sharesExpected: bigint = result ? BigInt(scValToNative(result.retval)) : BigInt(0);
+    return { sharesExpected, available: true };
+  } catch (err) {
+    return {
+      sharesExpected: BigInt(0),
+      available: false,
+      error: err instanceof Error ? err.message : "Deposit preview unavailable",
     };
   }
 }
