@@ -68,6 +68,12 @@ async function installFakeHub(page: Page): Promise<FakeHub> {
 const badge = (page: Page) => page.getByTestId('connection-status');
 
 test.describe('WebSocket reconnection', () => {
+    // Reconnection is a waiting game: the bounded-retry schedule alone runs
+    // ~1/2/4/8/16s before the client gives up. Playwright's 30s default would
+    // expire mid-schedule and report a timeout instead of the real outcome,
+    // and an assertion-level timeout cannot outlive the test that contains it.
+    test.setTimeout(90_000);
+
     test('shows the reconnecting indicator when the socket closes, and clears it when it reopens', async ({
         page,
     }) => {
@@ -204,8 +210,12 @@ test.describe('WebSocket reconnection', () => {
         // heartbeat can catch this; TCP would take minutes.
         hub.setAnswerPings(false);
 
+        // The harness pings every 1s and allows 2s for the pong (see
+        // lib/e2e-harness.ts), so detection lands within ~3s of the last
+        // answered ping. Production uses 30s/10s; asserting against those
+        // would be a test about waiting, not about the teardown.
         await expect(badge(page)).not.toHaveAttribute('data-status', 'connected', {
-            timeout: 60_000,
+            timeout: 15_000,
         });
     });
 });

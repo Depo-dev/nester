@@ -84,14 +84,36 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "";
  * Must be rendered **inside** <PortfolioProvider> and <NotificationsProvider>
  * so it can call usePortfolio() / useNotifications() to dispatch live updates.
  */
-export function WebSocketProvider({ children }: { children: ReactNode }) {
+interface WebSocketProviderProps {
+    children: ReactNode;
+    /**
+     * Channels to subscribe to instead of the wallet-derived set.
+     *
+     * Only the E2E harness passes this. The production tree subscribes on
+     * behalf of a connected wallet, which a browser-driven test cannot
+     * produce; without an override the harness would subscribe to nothing and
+     * the re-subscribe-on-reconnect behaviour would be untestable.
+     */
+    channelsOverride?: string[];
+    /** Heartbeat ping interval in ms. Harness-only; see channelsOverride. */
+    heartbeatInterval?: number;
+    /** Pong grace period in ms. Harness-only; see channelsOverride. */
+    heartbeatTimeout?: number;
+}
+
+export function WebSocketProvider({
+    children,
+    channelsOverride,
+    heartbeatInterval,
+    heartbeatTimeout,
+}: WebSocketProviderProps) {
     const { address } = useWallet();
     const { applyBalanceUpdate, applyYieldAccrual, refreshBalances } = usePortfolio();
     const { addNotification, setConnectionState } = useNotifications();
 
     const token = address ? `mock_jwt_${address}` : "";
 
-    const channels = useMemo<string[]>(() => {
+    const walletChannels = useMemo<string[]>(() => {
         if (!address) return [];
         return [
             `user:${address}`,
@@ -100,6 +122,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
             "notifications:safety",
         ];
     }, [address]);
+
+    const channels = channelsOverride ?? walletChannels;
 
     const handleEvent = useCallback(
         (event: WSEvent) => {
@@ -322,6 +346,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         onEvent: handleEvent,
         onPoll: refreshBalances,
         onReconcile: reconcile,
+        heartbeatInterval,
+        heartbeatTimeout,
     });
 
     const hasMountedRef = useRef(false);

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ConnectionStatusBadge } from "@/components/connection-status-badge";
 import { LiveValue } from "@/components/live-value";
 import { useWebSocketContext } from "@/components/websocket-provider";
+import { E2E_HARNESS_ENABLED } from "@/lib/e2e-harness";
 
 /**
  * WebSocket connection-state harness (E2E only).
@@ -17,10 +18,9 @@ import { useWebSocketContext } from "@/components/websocket-provider";
  * webServer does and no deployed environment does.
  */
 export default function ConnectionHarnessPage() {
-    const enabled = process.env.NEXT_PUBLIC_E2E_HARNESS === "1";
     const { status, lastUpdatedAt } = useWebSocketContext();
 
-    if (!enabled) notFound();
+    if (!E2E_HARNESS_ENABLED) notFound();
 
     return (
         <main className="p-8 space-y-6">

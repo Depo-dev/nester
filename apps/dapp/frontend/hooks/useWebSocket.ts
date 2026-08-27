@@ -217,10 +217,19 @@ export function useWebSocket({
         stopHeartbeat();
         heartbeatTimerRef.current = setInterval(() => {
             if (ws.readyState !== WebSocket.OPEN) return;
+
+            // A deadline is already pending from an earlier ping that has not
+            // been answered. Rearming it here would push the deadline back
+            // once per interval and it could never fire, so a peer that stops
+            // answering would be detected only if the pong timeout were
+            // shorter than the ping interval. Let the pending one run out;
+            // onmessage clears it when a pong actually arrives.
+            if (pongTimerRef.current !== null) return;
+
             const ping: ClientWireMessage = { action: "ping" };
             ws.send(JSON.stringify(ping));
-            if (pongTimerRef.current !== null) clearTimeout(pongTimerRef.current);
             pongTimerRef.current = setTimeout(() => {
+                pongTimerRef.current = null;
                 // No pong in time — drop the connection so onclose reconnects.
                 ws.close();
             }, heartbeatTimeout);
