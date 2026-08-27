@@ -111,6 +111,26 @@ export class TransactionFailedError extends Error {
 }
 
 /**
+ * Thrown when the wallet's network does not match the app's configured network.
+ */
+export class NetworkMismatchError extends Error {
+  constructor(walletNetwork: string, appNetwork: string) {
+    super(`Wallet is on ${walletNetwork} but the app is on ${appNetwork}. Please switch your wallet network.`);
+    this.name = "NetworkMismatchError";
+  }
+}
+
+/**
+ * Thrown when the wallet disconnects between building and signing a transaction.
+ */
+export class WalletDisconnectedError extends Error {
+  constructor() {
+    super("Wallet disconnected. Please reconnect your wallet and try again.");
+    this.name = "WalletDisconnectedError";
+  }
+}
+
+/**
  * Thrown when the submission times out waiting for ledger confirmation.
  */
 export class TransactionTimeoutError extends Error {
@@ -301,12 +321,52 @@ export async function signTransaction(txXdr: string): Promise<string> {
 
   const walletModule = StellarWalletsKit.selectedModule;
   if (!walletModule) {
-    throw new Error(
-      "No Stellar wallet connected. Please connect a wallet and try again."
-    );
+    throw new WalletDisconnectedError();
   }
 
   const network = getCurrentNetwork();
+
+  // Confirm the wallet is still connected (#1099). A locked, closed, or
+  // switched-account wallet surfaces as getAddress() throwing, so a failure
+  // here IS the disconnect case and must not be swallowed.
+  try {
+    const { address: currentAddress } = await walletModule.getAddress();
+    if (!currentAddress) {
+      throw new WalletDisconnectedError();
+    }
+  } catch (err) {
+    if (err instanceof WalletDisconnectedError) throw err;
+    throw new WalletDisconnectedError();
+  }
+
+  // Network mismatch check (#1095). Compare the wallet's actual network
+  // against the one the transaction was built for. Signing a testnet
+  // transaction while the wallet is on mainnet (or the reverse) means the
+  // user approves something other than what they were shown.
+  //
+  // getNetwork() is not implemented by every wallet module; when it is
+  // absent we cannot verify and deliberately proceed rather than blocking
+  // signing on wallets that simply do not expose it.
+  const getNetwork = (
+    walletModule as unknown as {
+      getNetwork?: () => Promise<{ networkPassphrase?: string; network?: string }>;
+    }
+  ).getNetwork;
+
+  if (typeof getNetwork === "function") {
+    let walletPassphrase: string | undefined;
+    try {
+      const net = await getNetwork.call(walletModule);
+      walletPassphrase = net?.networkPassphrase;
+    } catch {
+      // Treat an unreadable network as unverifiable rather than mismatched.
+      walletPassphrase = undefined;
+    }
+
+    if (walletPassphrase && walletPassphrase !== network.networkPassphrase) {
+      throw new NetworkMismatchError(walletPassphrase, network.networkPassphrase);
+    }
+  }
 
   let result: { signedTxXdr: string };
   try {

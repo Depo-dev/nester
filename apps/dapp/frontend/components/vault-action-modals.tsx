@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useStellarFeeEstimate } from "@/hooks/useStellarFeeEstimate";
 import { NetworkFeeDisplay } from "@/components/stellar/NetworkFeeEstimate";
 import { useTokenPrices } from "@/hooks/useTokenPrices";
@@ -34,6 +34,8 @@ import {
     UserRejectedError,
     TransactionFailedError,
     TransactionTimeoutError,
+    NetworkMismatchError,
+    WalletDisconnectedError,
 } from "@/lib/stellar/transaction";
 import { cn } from "@/lib/utils";
 import { type VaultContract as VaultDefinition, type SupportedAsset, vaultContracts as vaultDefinitions, getVaultContractById as getVaultById } from "@/lib/vault-contracts";
@@ -132,6 +134,7 @@ export function DepositModal({
     const [selectedAsset, setSelectedAsset] = useState<SupportedAsset>(
         vault?.supportedAssets?.[0] ?? "USDC"
     );
+    const submittingRef = useRef(false);
 
     // Reset selected asset when vault changes
     const assets = vault?.supportedAssets ?? ["USDC"];
@@ -203,7 +206,8 @@ export function DepositModal({
     };
 
     const processDeposit = async () => {
-        if (!vault || !address || !canSubmit) return;
+        if (!vault || !address || !canSubmit || submittingRef.current) return;
+        submittingRef.current = true;
 
         setError("");
         setState("confirming");
@@ -244,6 +248,10 @@ export function DepositModal({
         } catch (err) {
             if (err instanceof UserRejectedError) {
                 setError("You cancelled the transaction. No funds were moved.");
+            } else if (err instanceof NetworkMismatchError) {
+                setError(err.message);
+            } else if (err instanceof WalletDisconnectedError) {
+                setError(err.message);
             } else if (err instanceof TransactionFailedError) {
                 setError(`Transaction failed on-chain: ${err.reason}`);
             } else if (err instanceof TransactionTimeoutError) {
@@ -252,6 +260,8 @@ export function DepositModal({
                 setError(err instanceof Error ? err.message : "Deposit failed");
             }
             setState("error");
+        } finally {
+            submittingRef.current = false;
         }
     };
 
@@ -507,9 +517,7 @@ export function DepositModal({
                                             <ExternalLink className="h-3.5 w-3.5" />
                                         </Link>
                                         <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white dark:bg-[#100F0F] px-3 py-2 text-xs text-emerald-700">
-                                            {receipt.walletPopupUsed
-                                                ? "Wallet signature captured"
-                                                : "Mock signature used"}
+                                            Wallet signature captured
                                         </span>
                                     </div>
                                 </div>
@@ -519,10 +527,7 @@ export function DepositModal({
                                         <ShieldCheck className="mt-0.5 h-4 w-4 text-emerald-600" />
                                         <div className="space-y-2 text-sm text-muted-foreground">
                                             <p>
-                                                This flow uses a mock Soroban transaction envelope until the live vault contracts are ready on testnet.
-                                            </p>
-                                            <p>
-                                                If your wallet supports signing this mock transaction, you will still get a real wallet popup before the simulated confirmation step.
+                                                Your wallet will prompt you to sign a Soroban transaction. Review the details carefully before approving.
                                             </p>
                                         </div>
                                     </div>
@@ -671,6 +676,11 @@ export function WithdrawModal({
         open && state === "input" && amount > 0
     );
 
+    // Guards double submission. A ref rather than render state: a fast second
+    // click or an Enter keypress fires before React has re-rendered with the
+    // disabled button, so state alone does not prevent a duplicate send.
+    const submittingRef = useRef(false);
+
     const canSubmit =
         !!position &&
         !!address &&
@@ -688,7 +698,8 @@ export function WithdrawModal({
     };
 
     const processWithdrawal = async () => {
-        if (!position || !address || !quote || !canSubmit) return;
+        if (!position || !address || !quote || !canSubmit || submittingRef.current) return;
+        submittingRef.current = true;
 
         setError("");
         setState("confirming");
@@ -733,6 +744,10 @@ export function WithdrawModal({
         } catch (err) {
             if (err instanceof UserRejectedError) {
                 setError("You cancelled the transaction. No funds were moved.");
+            } else if (err instanceof NetworkMismatchError) {
+                setError(err.message);
+            } else if (err instanceof WalletDisconnectedError) {
+                setError(err.message);
             } else if (err instanceof TransactionFailedError) {
                 setError(`Transaction failed on-chain: ${err.reason}`);
             } else if (err instanceof TransactionTimeoutError) {
@@ -741,6 +756,8 @@ export function WithdrawModal({
                 setError(err instanceof Error ? err.message : "Withdrawal failed");
             }
             setState("error");
+        } finally {
+            submittingRef.current = false;
         }
     };
 
@@ -1034,6 +1051,10 @@ export function TransferModal({
     }, [watch("amount"), position]);
 
     const finalAmount = amountStroops ? Number(formatStroopsToDisplay(amountStroops, 6)) : 0;
+
+    // See the note in DepositModal: guards against a duplicate submit that
+    // render state cannot catch.
+    const submittingRef = useRef(false);
     const canSubmit =
         !isNaN(finalAmount) &&
         finalAmount > 0 &&
@@ -1051,9 +1072,10 @@ export function TransferModal({
     }
 
     const handleTransfer = handleSubmit(async ({ amount: rawAmount }) => {
-        if (!position || !selectedVault) return;
+        if (!position || !selectedVault || submittingRef.current) return;
         const amt = parseFloat(rawAmount);
         if (isNaN(amt) || amt <= 0) return;
+        submittingRef.current = true;
 
         setError(null);
         setState("confirming");
@@ -1108,6 +1130,8 @@ export function TransferModal({
             } else {
                 setError(err instanceof Error ? err.message : "Transfer failed. Please try again.");
             }
+        } finally {
+            submittingRef.current = false;
         }
     });
 
@@ -1289,7 +1313,7 @@ export function TransferModal({
                                             <ExternalLink className="h-3.5 w-3.5" />
                                         </Link>
                                         <span className="inline-flex items-center rounded-full border border-emerald-200 bg-white dark:bg-[#100F0F] px-3 py-2 text-xs text-emerald-700">
-                                            {receipt.walletPopupUsed ? "Wallet signature captured" : "Mock signature used"}
+                                            {"Wallet signature captured"}
                                         </span>
                                     </div>
                                 </div>
