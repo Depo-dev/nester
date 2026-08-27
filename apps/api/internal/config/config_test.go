@@ -454,6 +454,10 @@ func TestLoadAllDefaults(t *testing.T) {
 		{"ratelimit settlement limit", cfg.RateLimit().SettlementLimit(), 5},
 		{"ratelimit settlement window", cfg.RateLimit().SettlementWindow(), 1 * time.Minute},
 		{"ratelimit trusted proxy count", cfg.RateLimit().TrustedProxyCount(), 0},
+		{"ratelimit quota enabled", cfg.RateLimit().QuotaEnabled(), true},
+		{"ratelimit quota limit", cfg.RateLimit().QuotaLimit(), 300},
+		{"ratelimit quota window", cfg.RateLimit().QuotaWindow(), 1 * time.Minute},
+		{"ratelimit quota bypass token", cfg.RateLimit().QuotaBypassToken(), ""},
 	}
 
 	for _, tc := range cases {
@@ -1319,4 +1323,95 @@ type testErr struct {
 
 func (e *testErr) Error() string {
 	return e.message
+}
+
+// Quotas must be tunable per environment — the whole point is that staging can
+// run tighter limits than production while a load test opts out entirely.
+func TestLoadQuotaOverrides(t *testing.T) {
+	baseEnv(t)
+	requiredEnv(t)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("RATELIMIT_QUOTA_LIMIT", "50")
+	t.Setenv("RATELIMIT_QUOTA_WINDOW", "30s")
+	t.Setenv("RATELIMIT_QUOTA_BYPASS_TOKEN", "load-test-token")
+
+	chdir(t, t.TempDir())
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.RateLimit().QuotaLimit(); got != 50 {
+		t.Errorf("QuotaLimit() = %d, want 50", got)
+	}
+	if got := cfg.RateLimit().QuotaWindow(); got != 30*time.Second {
+		t.Errorf("QuotaWindow() = %s, want 30s", got)
+	}
+	if got := cfg.RateLimit().QuotaBypassToken(); got != "load-test-token" {
+		t.Errorf("QuotaBypassToken() = %q, want %q", got, "load-test-token")
+	}
+	if !cfg.RateLimit().QuotaEnabled() {
+		t.Error("QuotaEnabled() = false, want true by default")
+	}
+}
+
+// The documented load-test opt-out.
+func TestLoadQuotaCanBeDisabled(t *testing.T) {
+	baseEnv(t)
+	requiredEnv(t)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("RATELIMIT_QUOTA_ENABLED", "false")
+
+	chdir(t, t.TempDir())
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.RateLimit().QuotaEnabled() {
+		t.Error("QuotaEnabled() = true, want false")
+	}
+}
+
+func TestLoadQuotaRejectsNonPositiveLimit(t *testing.T) {
+	baseEnv(t)
+	requiredEnv(t)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("RATELIMIT_QUOTA_LIMIT", "0")
+
+	chdir(t, t.TempDir())
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want an error for RATELIMIT_QUOTA_LIMIT=0")
+	}
+}
+
+// A sub-millisecond window truncates to a zero refill rate, leaving a bucket
+// that never refills — worse than no limiter, because it locks every caller out.
+func TestLoadQuotaRejectsSubMillisecondWindow(t *testing.T) {
+	baseEnv(t)
+	requiredEnv(t)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("RATELIMIT_QUOTA_WINDOW", "100us")
+
+	chdir(t, t.TempDir())
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want an error for a sub-millisecond quota window")
+	}
+}
+
+// A disabled quota should not force its numbers to stay meaningful.
+func TestLoadQuotaValidationSkippedWhenDisabled(t *testing.T) {
+	baseEnv(t)
+	requiredEnv(t)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("RATELIMIT_QUOTA_ENABLED", "false")
+	t.Setenv("RATELIMIT_QUOTA_LIMIT", "0")
+
+	chdir(t, t.TempDir())
+
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() error = %v, want nil when quotas are disabled", err)
+	}
 }
