@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,7 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/suncrestlabs/nester/apps/api/internal/auth"
+	"github.com/suncrestlabs/nester/apps/api/internal/breaker"
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/vault"
+	"github.com/suncrestlabs/nester/apps/api/internal/retry"
 	"github.com/suncrestlabs/nester/apps/api/internal/service"
 	"github.com/suncrestlabs/nester/apps/api/internal/ws"
 	"github.com/suncrestlabs/nester/apps/api/pkg/listquery"
@@ -775,10 +778,47 @@ func (h *VaultHandler) writeDomainError(w http.ResponseWriter, r *http.Request, 
 		response.WriteJSON(w, http.StatusConflict, response.Err(http.StatusConflict, "DUPLICATE_TRANSACTION", err.Error()))
 	case errors.Is(err, vault.ErrInsufficientBalance), errors.Is(err, vault.ErrVaultClosed), errors.Is(err, vault.ErrVaultNotActive):
 		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr(err.Error()))
+
+	// The chain never gave us an answer: either the circuit breaker declined
+	// to call it (nester#1087) or the call was retried to exhaustion
+	// (nester#1086). Both are 503 rather than the default 500, because both
+	// are known, temporary upstream conditions rather than a fault in this
+	// service — and because 500 would tell a client to treat it as a bug
+	// rather than to back off.
+	//
+	// One response code for both: a client's correct action is identical, and
+	// the distinction that matters to us is in the metrics, not on the wire.
+	//
+	// Deliberately not logged here. An open breaker can reject every request
+	// for its whole open period, and a log line each would turn an upstream
+	// outage into a logging outage; the breaker's rejection counter and the
+	// RPC exhaustion counter carry that volume instead.
+	case errors.Is(err, breaker.ErrOpen), errors.Is(err, retry.ErrExhausted):
+		w.Header().Set("Retry-After", retryAfterSeconds(err))
+		response.WriteJSON(w, http.StatusServiceUnavailable, response.Err(
+			http.StatusServiceUnavailable,
+			"UPSTREAM_UNAVAILABLE",
+			"the Stellar network is temporarily unreachable; please retry shortly",
+		))
+
 	default:
 		logpkg.FromContext(r.Context()).Error("vault handler failed", "error", err.Error())
 		response.WriteJSON(w, http.StatusInternalServerError, response.Err(http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error"))
 	}
+}
+
+// retryAfterSeconds renders the breaker's remaining open period as a
+// Retry-After value, so a client backs off for as long as the shedding will
+// actually last instead of guessing. Falls back to "1" when the breaker did
+// not carry a duration, which is still better than no hint at all.
+func retryAfterSeconds(err error) string {
+	var openErr *breaker.OpenError
+	if errors.As(err, &openErr) {
+		if seconds := int(math.Ceil(openErr.RetryIn.Seconds())); seconds > 0 {
+			return strconv.Itoa(seconds)
+		}
+	}
+	return "1"
 }
 
 func decodeJSON(r *http.Request, destination any) error {
