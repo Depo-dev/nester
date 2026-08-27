@@ -221,10 +221,5 @@ func matchPattern(pattern, path string) (specificity int, ok bool) {
 	return specificity, true
 }
 
-func splitPath(p string) []string {
-	p = strings.Trim(p, "/")
-	if p == "" {
-		return nil
-	}
-	return strings.Split(p, "/")
-}
+// splitPath lives in ratelimit_routes.go; the route matcher there and the cost
+// table here segment paths the same way.

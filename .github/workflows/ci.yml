@@ -25,6 +25,7 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       contracts: ${{ steps.filter.outputs.contracts }}
       shared: ${{ steps.filter.outputs.shared }}
+      slo: ${{ steps.filter.outputs.slo }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +52,12 @@ jobs:
               - 'apps/dapp/**'
             api:
               - 'apps/api/**'
+            slo:
+              - 'docker/prometheus/**'
+              - 'docker/alertmanager/**'
+              - 'docker/grafana/**'
+              - 'scripts/build_slo_dashboards.py'
+              - 'tests/probes/**'
             contracts:
               - 'packages/contracts/**'
               - 'scripts/contract-audit.sh'
@@ -151,6 +158,69 @@ jobs:
 
       - name: Report non-blocking JS advisories (dapp)
         run: pnpm audit --audit-level=moderate || true
+
+  # SLO rules (nester#1056). Validates the recording and alerting rules and
+  # runs the burn-rate unit tests against the same files Prometheus loads, so
+  # a threshold edited without updating its arithmetic fails the build rather
+  # than being discovered during an incident.
+  slo:
+    name: SLO rules
+    needs: changes
+    if: needs.changes.outputs.slo == 'true' || needs.changes.outputs.shared == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install promtool and amtool
+        run: |
+          set -euo pipefail
+          PROM_VERSION=3.1.0
+          AM_VERSION=0.28.0
+          curl -sSfL "https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz"             | tar xz --strip-components=1 -C /usr/local/bin "prometheus-${PROM_VERSION}.linux-amd64/promtool"
+          curl -sSfL "https://github.com/prometheus/alertmanager/releases/download/v${AM_VERSION}/alertmanager-${AM_VERSION}.linux-amd64.tar.gz"             | tar xz --strip-components=1 -C /usr/local/bin "alertmanager-${AM_VERSION}.linux-amd64/amtool"
+          promtool --version
+          amtool --version
+
+      - name: Check Prometheus config and rules
+        run: promtool check config docker/prometheus/prometheus.yml
+
+      - name: Check Alertmanager config
+        run: amtool check-config docker/alertmanager/alertmanager.yml
+
+      # The substance: proves the fast-burn alert fires on an induced burst,
+      # the slow-burn alert tickets without paging, a healthy system stays
+      # quiet, and the thresholds behave at the boundary.
+      - name: Run burn-rate alert tests
+        working-directory: docker/prometheus/rules
+        run: promtool test rules slo_alerts_test.yml slo_probe_alerts_test.yml slo_money_path_alerts_test.yml
+
+      # The dashboards are generated from scripts/build_slo_dashboards.py so
+      # the panels and thresholds stay consistent across four files. Committing
+      # the output means Grafana loads exactly what is reviewed; this step
+      # stops the two drifting apart.
+      # The probes create real staging transactions, so their safety guards
+      # (no default target, production-name and production-URL refusal,
+      # mutations opt-in) are the part that must never regress.
+      - name: Run synthetic probe tests
+        working-directory: tests/probes
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest -q
+
+      - name: Check SLO dashboards are up to date
+        run: |
+          set -euo pipefail
+          python3 scripts/build_slo_dashboards.py
+          if ! git diff --quiet -- docker/grafana/dashboards; then
+            echo "::error::Generated dashboards differ from the committed ones."
+            echo "Run: python scripts/build_slo_dashboards.py, then commit the result."
+            git diff --stat -- docker/grafana/dashboards
+            exit 1
+          fi
 
   security:
     name: Security Scanning
@@ -413,7 +483,15 @@ jobs:
         run: test -f target/wasm32-unknown-unknown/release/vault_token.wasm
 
       - name: Test contracts
+        env:
+          PROPTEST_RNG_SEED: "29062026"
         run: cargo test --lib
+
+      - name: Run deterministic share-accounting properties
+        env:
+          PROPTEST_CASES: "32"
+          PROPTEST_RNG_SEED: "29062026"
+        run: cargo test -p nester-integration-tests property_tests
 
       # The vault contract's integration tests link against the pre-compiled
       # vault_token.wasm artifact built above. Run them explicitly and fail the
