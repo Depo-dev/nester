@@ -795,7 +795,9 @@ func (h *SavingsGoalHandler) writeError(w http.ResponseWriter, r *http.Request, 
 	case errors.Is(err, savingsgoal.ErrRecoveryWindowExpired):
 		response.WriteJSON(w, http.StatusConflict, response.Err(http.StatusConflict, "RECOVERY_WINDOW_EXPIRED", err.Error()))
 	case errors.Is(err, savingsgoal.ErrUnauthorized):
-		response.WriteJSON(w, http.StatusForbidden, response.Err(http.StatusForbidden, "FORBIDDEN", "vault does not belong to you"))
+		// 404, not 403 — "vault does not belong to you" confirms the vault
+		// exists to a caller who does not own it (#1101).
+		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
 	case errors.Is(err, savingsgoal.ErrInvalidGoal):
 		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr(err.Error()))
 	case errors.Is(err, goalnotification.ErrInvalidPreference):
