@@ -639,6 +639,7 @@ impl AllocationStrategyContract {
     ///
     /// Requires Upgrader role and enforces MIN_UPGRADE_DELAY_ALLOCATION_STRATEGY (48 hours).
     pub fn propose_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>, eta: u64) {
+        admin.require_auth();
         AccessControl::require_role(&env, &admin, Role::Upgrader);
         nester_common::Upgrade::propose_upgrade(
             &env,
@@ -653,6 +654,7 @@ impl AllocationStrategyContract {
     ///
     /// Requires Upgrader role.
     pub fn cancel_upgrade(env: Env, admin: Address) {
+        admin.require_auth();
         AccessControl::require_role(&env, &admin, Role::Upgrader);
         nester_common::Upgrade::cancel_upgrade(&env, &admin);
     }
