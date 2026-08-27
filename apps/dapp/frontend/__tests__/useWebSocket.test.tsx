@@ -3,6 +3,8 @@ import { act, renderHook } from "@testing-library/react";
 import {
     useWebSocket,
     getReconnectDelay,
+    getJitteredReconnectDelay,
+    BACKOFF_JITTER_RATIO,
     MAX_BACKOFF_MS,
 } from "@/hooks/useWebSocket";
 
@@ -13,7 +15,9 @@ import {
 type Handler = ((ev: unknown) => void) | null;
 
 class MockWebSocket {
+    static CONNECTING = 0;
     static OPEN = 1;
+    static CLOSING = 2;
     static CLOSED = 3;
     static instances: MockWebSocket[] = [];
 
@@ -47,6 +51,11 @@ class MockWebSocket {
         this.onmessage?.({ data: JSON.stringify(obj) });
     }
 
+    /** Frames sent by the client, parsed. */
+    frames(): Array<{ action?: string; channels?: string[] }> {
+        return this.sent.map((m) => JSON.parse(m));
+    }
+
     static last() {
         return MockWebSocket.instances[MockWebSocket.instances.length - 1];
     }
@@ -58,14 +67,28 @@ class MockWebSocket {
 
 const WS_URL = "wss://example.test/ws";
 
+/** Drive document.visibilityState, which jsdom exposes read-only. */
+function setVisibility(state: "visible" | "hidden") {
+    Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => state,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+}
+
 beforeEach(() => {
     vi.useFakeTimers();
     MockWebSocket.reset();
     // @ts-expect-error — replace global for the hook under test
     global.WebSocket = MockWebSocket;
+    setVisibility("visible");
+    // Pin jitter to its ceiling so back-off timings are exact in tests that
+    // are not themselves about jitter.
+    vi.spyOn(Math, "random").mockReturnValue(1);
 });
 
 afterEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllTimers();
     vi.useRealTimers();
 });
@@ -75,64 +98,168 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("getReconnectDelay", () => {
-    it("produces the exponential back-off schedule capped at 30s (with jitter)", () => {
-        // With full jitter, each delay lands in [raw * 0.5, raw]. The raw
-        // schedule is 1s, 2s, 4s, 8s, 16s, 30s (capped), 30s (capped).
+    it("produces the exponential back-off schedule capped at 30s", () => {
         const schedule = [0, 1, 2, 3, 4, 5, 6].map((a) => getReconnectDelay(a));
-
-        // Attempt 0: raw 1000 → [500, 1000]
-        expect(schedule[0]).toBeGreaterThanOrEqual(500);
-        expect(schedule[0]).toBeLessThanOrEqual(1000);
-
-        // Attempt 1: raw 2000 → [1000, 2000]
-        expect(schedule[1]).toBeGreaterThanOrEqual(1000);
-        expect(schedule[1]).toBeLessThanOrEqual(2000);
-
-        // Attempt 2: raw 4000 → [2000, 4000]
-        expect(schedule[2]).toBeGreaterThanOrEqual(2000);
-        expect(schedule[2]).toBeLessThanOrEqual(4000);
-
-        // Attempt 3: raw 8000 → [4000, 8000]
-        expect(schedule[3]).toBeGreaterThanOrEqual(4000);
-        expect(schedule[3]).toBeLessThanOrEqual(8000);
-
-        // Attempt 4: raw 16000 → [8000, 16000]
-        expect(schedule[4]).toBeGreaterThanOrEqual(8000);
-        expect(schedule[4]).toBeLessThanOrEqual(16000);
-
-        // Attempt 5+: capped at 30000 → [15000, 30000]
-        expect(schedule[5]).toBeGreaterThanOrEqual(15000);
-        expect(schedule[5]).toBeLessThanOrEqual(MAX_BACKOFF_MS);
-        expect(schedule[6]).toBeGreaterThanOrEqual(15000);
-        expect(schedule[6]).toBeLessThanOrEqual(MAX_BACKOFF_MS);
+        expect(schedule).toEqual([1000, 2000, 4000, 8000, 16000, 30000, 30000]);
     });
 
-    it("never exceeds the maximum back-off (including jitter)", () => {
-        for (let attempt = 0; attempt < 30; attempt++) {
-            expect(getReconnectDelay(attempt)).toBeLessThanOrEqual(MAX_BACKOFF_MS);
-        }
+    it("never exceeds the maximum back-off", () => {
+        expect(getReconnectDelay(20)).toBe(MAX_BACKOFF_MS);
     });
 
-    it("respects a custom base interval (within jitter bounds)", () => {
-        // raw delay at attempt 0 with base 500 is 500 → [250, 500]
-        const custom = getReconnectDelay(0, 500);
-        expect(custom).toBeGreaterThanOrEqual(250);
-        expect(custom).toBeLessThanOrEqual(500);
+    it("respects a custom base interval", () => {
+        expect(getReconnectDelay(0, 500)).toBe(500);
+        expect(getReconnectDelay(2, 500)).toBe(2000);
     });
 
     it("treats negative attempts as the first attempt", () => {
-        // Both attempt 0 and negative attempts use the same raw delay (1000ms),
-        // so the result with jitter lands in [500, 1000].
-        const negative = getReconnectDelay(-3);
-        expect(negative).toBeGreaterThanOrEqual(500);
-        expect(negative).toBeLessThanOrEqual(1000);
+        expect(getReconnectDelay(-3)).toBe(1000);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Jitter
+//
+// Without jitter, every client that was connected to a server when it
+// restarted retries in the same instant and knocks it over again. These
+// tests pin that the randomisation is really there and really bounded.
+// ---------------------------------------------------------------------------
+
+describe("getJitteredReconnectDelay", () => {
+    it("actually randomises: different random draws give different delays", () => {
+        const low = getJitteredReconnectDelay(3, 1000, () => 0);
+        const mid = getJitteredReconnectDelay(3, 1000, () => 0.5);
+        const high = getJitteredReconnectDelay(3, 1000, () => 1);
+
+        expect(new Set([low, mid, high]).size).toBe(3);
+        expect(low).toBeLessThan(mid);
+        expect(mid).toBeLessThan(high);
     });
 
-    it("includes jitter so successive calls vary", () => {
-        const runs = Array.from({ length: 30 }, () => getReconnectDelay(0));
-        const unique = new Set(runs);
-        // With a continuous jitter range, 30 calls must not all agree.
-        expect(unique.size).toBeGreaterThanOrEqual(2);
+    it("spreads the delay across the jitter window below the exponential ceiling", () => {
+        for (const attempt of [0, 1, 2, 3, 4, 5]) {
+            const ceiling = getReconnectDelay(attempt);
+            const floor = ceiling * (1 - BACKOFF_JITTER_RATIO);
+
+            expect(getJitteredReconnectDelay(attempt, 1000, () => 0)).toBe(floor);
+            expect(getJitteredReconnectDelay(attempt, 1000, () => 1)).toBe(ceiling);
+        }
+    });
+
+    it("keeps every draw inside [ceiling/2, ceiling] and never exceeds the cap", () => {
+        const draws = Array.from({ length: 200 }, () => Math.random());
+        for (const attempt of [0, 2, 4, 9]) {
+            const ceiling = getReconnectDelay(attempt);
+            for (const r of draws) {
+                const delay = getJitteredReconnectDelay(attempt, 1000, () => r);
+                expect(delay).toBeGreaterThanOrEqual(ceiling * (1 - BACKOFF_JITTER_RATIO));
+                expect(delay).toBeLessThanOrEqual(ceiling);
+                expect(delay).toBeLessThanOrEqual(MAX_BACKOFF_MS);
+            }
+        }
+    });
+
+    it("never returns zero, so a flapping link cannot hot-loop", () => {
+        expect(getJitteredReconnectDelay(0, 1000, () => 0)).toBeGreaterThan(0);
+    });
+
+    it("draws different delays for concurrent clients sharing a schedule", () => {
+        // Simulate 50 clients all reconnecting from attempt 0 after a server
+        // restart, each with its own random source.
+        const seeds = Array.from({ length: 50 }, (_, i) => i / 50);
+        const delays = seeds.map((s) => getJitteredReconnectDelay(0, 1000, () => s));
+        expect(new Set(delays).size).toBeGreaterThan(1);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Wire protocol
+// ---------------------------------------------------------------------------
+
+describe("useWebSocket wire protocol", () => {
+    const baseOpts = {
+        url: WS_URL,
+        token: "jwt-123",
+        channels: ["user:abc", "vaults:global"],
+        onEvent: () => {},
+    };
+
+    it("authenticates via the upgrade URL query string", () => {
+        renderHook(() => useWebSocket(baseOpts));
+        expect(MockWebSocket.last().url).toBe(`${WS_URL}?token=jwt-123`);
+    });
+
+    it("subscribes with the hub's {action, channels} frame", () => {
+        renderHook(() => useWebSocket(baseOpts));
+        act(() => MockWebSocket.last().open());
+
+        const subs = MockWebSocket.last().frames().filter((f) => f.action === "subscribe");
+        expect(subs).toHaveLength(1);
+        expect(subs[0].channels).toEqual(["user:abc", "vaults:global"]);
+    });
+
+    it("translates hub events into the app's event shape", () => {
+        const onEvent = vi.fn();
+        renderHook(() => useWebSocket({ ...baseOpts, onEvent }));
+        act(() => MockWebSocket.last().open());
+
+        act(() =>
+            MockWebSocket.last().receive({
+                channel: "user:abc",
+                event: "balance_updated",
+                data: { asset: "USDC", newBalance: 42 },
+                timestamp: "2026-08-21T00:00:00Z",
+            })
+        );
+
+        expect(onEvent).toHaveBeenCalledWith({
+            type: "balance_updated",
+            channel: "user:abc",
+            payload: { asset: "USDC", newBalance: 42 },
+            timestamp: "2026-08-21T00:00:00Z",
+        });
+    });
+
+    it("subscribes to newly requested channels without dropping the socket", () => {
+        const { rerender } = renderHook(
+            ({ channels }) => useWebSocket({ ...baseOpts, channels }),
+            { initialProps: { channels: ["user:abc"] } }
+        );
+        act(() => MockWebSocket.last().open());
+        const socketCount = MockWebSocket.instances.length;
+
+        act(() => rerender({ channels: ["user:abc", "vaults:global"] }));
+
+        expect(MockWebSocket.instances.length).toBe(socketCount); // no reconnect
+        const subs = MockWebSocket.last().frames().filter((f) => f.action === "subscribe");
+        expect(subs[subs.length - 1].channels).toEqual(["vaults:global"]);
+    });
+
+    it("unsubscribes from channels the caller no longer wants", () => {
+        const { rerender } = renderHook(
+            ({ channels }) => useWebSocket({ ...baseOpts, channels }),
+            { initialProps: { channels: ["user:abc", "vaults:global"] } }
+        );
+        act(() => MockWebSocket.last().open());
+        act(() => rerender({ channels: ["user:abc"] }));
+
+        const unsubs = MockWebSocket.last().frames().filter((f) => f.action === "unsubscribe");
+        expect(unsubs).toHaveLength(1);
+        expect(unsubs[0].channels).toEqual(["vaults:global"]);
+    });
+
+    it("reconnects when the token changes, since it is part of the URL", () => {
+        const { rerender } = renderHook(
+            ({ token }) => useWebSocket({ ...baseOpts, token }),
+            { initialProps: { token: "" } }
+        );
+        act(() => MockWebSocket.last().open());
+        const before = MockWebSocket.instances.length;
+
+        act(() => rerender({ token: "jwt-new" }));
+
+        expect(MockWebSocket.instances.length).toBe(before + 1);
+        expect(MockWebSocket.last().url).toBe(`${WS_URL}?token=jwt-new`);
     });
 });
 
@@ -155,16 +282,6 @@ describe("useWebSocket state transitions", () => {
         expect(result.current.isConnected).toBe(true);
     });
 
-    it("subscribes to every channel exactly once on connect (no duplicates)", () => {
-        renderHook(() => useWebSocket(baseOpts));
-        act(() => MockWebSocket.last().open());
-
-        const subs = MockWebSocket.last().sent.filter((m) =>
-            m.includes('"subscribe"')
-        );
-        expect(subs).toHaveLength(2);
-    });
-
     it("goes 'reconnecting' on close and reconnects after the back-off delay", () => {
         const { result } = renderHook(() => useWebSocket(baseOpts));
         act(() => MockWebSocket.last().open());
@@ -173,9 +290,23 @@ describe("useWebSocket state transitions", () => {
         act(() => MockWebSocket.last().close());
         expect(result.current.status).toBe("reconnecting");
 
-        // First back-off is 1000ms.
-        act(() => vi.advanceTimersByTime(1000));
+        // With Math.random pinned to 1 the first back-off is its 1000ms ceiling.
+        act(() => vi.advanceTimersByTime(999));
+        expect(MockWebSocket.instances.length).toBe(before);
+        act(() => vi.advanceTimersByTime(1));
         expect(MockWebSocket.instances.length).toBe(before + 1);
+    });
+
+    it("re-subscribes to every channel after reconnecting", () => {
+        renderHook(() => useWebSocket(baseOpts));
+        act(() => MockWebSocket.last().open());
+        act(() => MockWebSocket.last().close());
+        act(() => vi.advanceTimersByTime(1000));
+        act(() => MockWebSocket.last().open());
+
+        const subs = MockWebSocket.last().frames().filter((f) => f.action === "subscribe");
+        expect(subs).toHaveLength(1);
+        expect(subs[0].channels).toEqual(["user:abc", "vaults:global"]);
     });
 
     it("resets the attempt counter after a successful reconnect", () => {
@@ -184,25 +315,17 @@ describe("useWebSocket state transitions", () => {
         );
         act(() => MockWebSocket.last().open());
 
-        // Drop once; the first back-off is 1000ms raw, ∈ [500, 1000] with
-        // jitter, so advancing the full 1000ms always triggers the reconnect.
         act(() => MockWebSocket.last().close());
         act(() => vi.advanceTimersByTime(1000));
         act(() => MockWebSocket.last().open());
         expect(result.current.status).toBe("connected");
 
-        // Next drop should again use the *first* back-off (raw 1000ms, min 500ms
-        // with jitter), proving the attempt counter reset.
+        // Next drop should again use the *first* back-off (1000ms ceiling).
         const before = MockWebSocket.instances.length;
         act(() => MockWebSocket.last().close());
-
-        // 499ms is below the jitter minimum (500ms) — the timer must not fire.
-        act(() => vi.advanceTimersByTime(499));
+        act(() => vi.advanceTimersByTime(999));
         expect(MockWebSocket.instances.length).toBe(before); // not yet
-
-        // Advancing to the full raw interval (1000ms) always covers the jitter
-        // range (max is 1000ms), so the reconnect is guaranteed by then.
-        act(() => vi.advanceTimersByTime(501));
+        act(() => vi.advanceTimersByTime(1));
         expect(MockWebSocket.instances.length).toBe(before + 1);
     });
 
@@ -226,54 +349,17 @@ describe("useWebSocket state transitions", () => {
         act(() => vi.advanceTimersByTime(30_000));
         expect(onPoll).toHaveBeenCalled();
     });
-});
 
-// ---------------------------------------------------------------------------
-// lastEventTime
-// ---------------------------------------------------------------------------
-
-describe("useWebSocket lastEventTime", () => {
-    const baseOpts = {
-        url: WS_URL,
-        token: "jwt",
-        channels: ["user:abc"],
-        onEvent: () => {},
-    };
-
-    it("starts as null before any event is received", () => {
-        const { result } = renderHook(() => useWebSocket(baseOpts));
-        expect(result.current.lastEventTime).toBeNull();
-    });
-
-    it("records a timestamp when a domain event arrives", () => {
-        const { result } = renderHook(() => useWebSocket(baseOpts));
+    it("stops opening sockets once retries are exhausted", () => {
+        renderHook(() => useWebSocket({ ...baseOpts, reconnectAttempts: 1 }));
         act(() => MockWebSocket.last().open());
+        act(() => MockWebSocket.last().close());
+        act(() => vi.advanceTimersByTime(1000));
+        act(() => MockWebSocket.last().close());
 
-        act(() => {
-            MockWebSocket.last().receive({
-                type: "balance_updated",
-                channel: "user:test",
-                payload: { asset: "XLM", newBalance: 100, previousBalance: 50 },
-                timestamp: new Date().toISOString(),
-            });
-        });
-
-        expect(result.current.lastEventTime).not.toBeNull();
-        expect(typeof result.current.lastEventTime).toBe("number");
-        expect(result.current.lastEventTime).toBeGreaterThan(0);
-    });
-
-    it("does not update lastEventTime for heartbeat frames", () => {
-        const { result } = renderHook(() => useWebSocket(baseOpts));
-        act(() => MockWebSocket.last().open());
-
-        const spy = vi.spyOn(Date, "now").mockReturnValue(12345);
-        act(() => {
-            MockWebSocket.last().receive({ type: "pong" });
-            MockWebSocket.last().receive({ type: "ping" });
-        });
-        expect(result.current.lastEventTime).toBeNull();
-        spy.mockRestore();
+        const settled = MockWebSocket.instances.length;
+        act(() => vi.advanceTimersByTime(120_000));
+        expect(MockWebSocket.instances.length).toBe(settled);
     });
 });
 
@@ -294,13 +380,13 @@ describe("useWebSocket heartbeat", () => {
         act(() => MockWebSocket.last().open());
 
         act(() => vi.advanceTimersByTime(30_000));
-        const pings = MockWebSocket.last().sent.filter((m) => m.includes('"ping"'));
+        const pings = MockWebSocket.last().frames().filter((f) => f.action === "ping");
         expect(pings).toHaveLength(1);
 
         // Answer the pong so the link stays alive, then expect a second ping.
-        act(() => MockWebSocket.last().receive({ type: "pong" }));
+        act(() => MockWebSocket.last().receive({ event: "pong" }));
         act(() => vi.advanceTimersByTime(30_000));
-        const pings2 = MockWebSocket.last().sent.filter((m) => m.includes('"ping"'));
+        const pings2 = MockWebSocket.last().frames().filter((f) => f.action === "ping");
         expect(pings2).toHaveLength(2);
     });
 
@@ -318,8 +404,18 @@ describe("useWebSocket heartbeat", () => {
         act(() => MockWebSocket.last().open());
 
         act(() => vi.advanceTimersByTime(30_000)); // ping
-        act(() => MockWebSocket.last().receive({ type: "pong" }));
+        act(() => MockWebSocket.last().receive({ event: "pong" }));
         act(() => vi.advanceTimersByTime(10_000)); // timeout would have fired
+        expect(result.current.status).toBe("connected");
+    });
+
+    it("accepts the legacy {type:'pong'} frame shape", () => {
+        const { result } = renderHook(() => useWebSocket(baseOpts));
+        act(() => MockWebSocket.last().open());
+
+        act(() => vi.advanceTimersByTime(30_000));
+        act(() => MockWebSocket.last().receive({ type: "pong" }));
+        act(() => vi.advanceTimersByTime(10_000));
         expect(result.current.status).toBe("connected");
     });
 
@@ -328,8 +424,162 @@ describe("useWebSocket heartbeat", () => {
         renderHook(() => useWebSocket({ ...baseOpts, onEvent }));
         act(() => MockWebSocket.last().open());
 
+        act(() => MockWebSocket.last().receive({ event: "pong" }));
         act(() => MockWebSocket.last().receive({ type: "pong" }));
-        act(() => MockWebSocket.last().receive({ type: "ping" }));
         expect(onEvent).not.toHaveBeenCalled();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Reconciliation and freshness
+// ---------------------------------------------------------------------------
+
+describe("useWebSocket reconciliation", () => {
+    const baseOpts = {
+        url: WS_URL,
+        token: "jwt",
+        channels: ["user:abc"],
+        onEvent: () => {},
+    };
+
+    it("fetches current state over HTTP on every connect, not just the first", async () => {
+        const onReconcile = vi.fn().mockResolvedValue(undefined);
+        renderHook(() => useWebSocket({ ...baseOpts, onReconcile }));
+
+        await act(async () => { MockWebSocket.last().open(); });
+        expect(onReconcile).toHaveBeenCalledTimes(1);
+
+        act(() => MockWebSocket.last().close());
+        act(() => vi.advanceTimersByTime(1000));
+        await act(async () => { MockWebSocket.last().open(); });
+        expect(onReconcile).toHaveBeenCalledTimes(2);
+    });
+
+    it("falls back to onPoll when no dedicated reconcile fetcher is given", async () => {
+        const onPoll = vi.fn().mockResolvedValue(undefined);
+        renderHook(() => useWebSocket({ ...baseOpts, onPoll }));
+        await act(async () => { MockWebSocket.last().open(); });
+        expect(onPoll).toHaveBeenCalledTimes(1);
+    });
+
+    it("stamps lastUpdatedAt when a reconcile succeeds and when events arrive", async () => {
+        const onReconcile = vi.fn().mockResolvedValue(undefined);
+        const { result } = renderHook(() => useWebSocket({ ...baseOpts, onReconcile }));
+
+        expect(result.current.lastUpdatedAt).toBeNull();
+
+        await act(async () => { MockWebSocket.last().open(); });
+        const afterReconcile = result.current.lastUpdatedAt;
+        expect(afterReconcile).not.toBeNull();
+
+        act(() => vi.advanceTimersByTime(5_000));
+        act(() =>
+            MockWebSocket.last().receive({
+                channel: "user:abc",
+                event: "balance_updated",
+                data: { asset: "USDC", newBalance: 1 },
+            })
+        );
+        expect(result.current.lastUpdatedAt!).toBeGreaterThan(afterReconcile!);
+    });
+
+    it("leaves lastUpdatedAt alone when the reconcile fetch fails", async () => {
+        const onReconcile = vi.fn().mockRejectedValue(new Error("network"));
+        const { result } = renderHook(() => useWebSocket({ ...baseOpts, onReconcile }));
+        await act(async () => { MockWebSocket.last().open(); });
+        expect(result.current.lastUpdatedAt).toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Hidden tab
+//
+// A background tab that keeps retrying forever burns the user's battery and
+// data, and hammers the server after a restart. It must park instead, and
+// come back promptly when the user does.
+// ---------------------------------------------------------------------------
+
+describe("useWebSocket in a hidden tab", () => {
+    const baseOpts = {
+        url: WS_URL,
+        token: "jwt",
+        channels: ["user:abc"],
+        onEvent: () => {},
+    };
+
+    it("does not schedule reconnects while the tab is hidden", () => {
+        const { result } = renderHook(() => useWebSocket(baseOpts));
+        act(() => MockWebSocket.last().open());
+
+        act(() => setVisibility("hidden"));
+        const before = MockWebSocket.instances.length;
+        act(() => MockWebSocket.last().close());
+
+        expect(result.current.status).toBe("reconnecting");
+
+        // Ten minutes of a hidden tab: not one reconnect attempt.
+        act(() => vi.advanceTimersByTime(600_000));
+        expect(MockWebSocket.instances.length).toBe(before);
+    });
+
+    it("reconnects immediately when the tab becomes visible again", () => {
+        renderHook(() => useWebSocket(baseOpts));
+        act(() => MockWebSocket.last().open());
+
+        act(() => setVisibility("hidden"));
+        const before = MockWebSocket.instances.length;
+        act(() => MockWebSocket.last().close());
+        act(() => vi.advanceTimersByTime(600_000));
+        expect(MockWebSocket.instances.length).toBe(before);
+
+        act(() => setVisibility("visible"));
+        expect(MockWebSocket.instances.length).toBe(before + 1);
+    });
+
+    it("skips the polling fallback while hidden", async () => {
+        const onPoll = vi.fn().mockResolvedValue(undefined);
+        renderHook(() => useWebSocket({ ...baseOpts, reconnectAttempts: 1, onPoll }));
+        act(() => MockWebSocket.last().open());
+
+        // Exhaust retries so the poll timer is running.
+        act(() => MockWebSocket.last().close());
+        act(() => vi.advanceTimersByTime(1000));
+        act(() => MockWebSocket.last().close());
+
+        // onPoll doubles as the reconcile fetcher, so it has already run once
+        // for the initial connect. What must not happen is it ticking on.
+        const callsBeforeHiding = onPoll.mock.calls.length;
+        act(() => setVisibility("hidden"));
+        act(() => vi.advanceTimersByTime(300_000));
+        expect(onPoll.mock.calls.length).toBe(callsBeforeHiding);
+
+        // …and it resumes once the tab is visible again.
+        act(() => setVisibility("visible"));
+        await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+        expect(onPoll.mock.calls.length).toBeGreaterThan(callsBeforeHiding);
+    });
+
+    it("reconciles over HTTP when returning to a tab whose socket stayed open", async () => {
+        const onReconcile = vi.fn().mockResolvedValue(undefined);
+        renderHook(() => useWebSocket({ ...baseOpts, onReconcile }));
+        await act(async () => { MockWebSocket.last().open(); });
+        expect(onReconcile).toHaveBeenCalledTimes(1);
+
+        act(() => setVisibility("hidden"));
+        await act(async () => { setVisibility("visible"); });
+
+        expect(onReconcile).toHaveBeenCalledTimes(2);
+    });
+
+    it("reconnects when the browser reports the network is back", () => {
+        renderHook(() => useWebSocket({ ...baseOpts, reconnectAttempts: 1 }));
+        act(() => MockWebSocket.last().open());
+        act(() => MockWebSocket.last().close());
+        act(() => vi.advanceTimersByTime(1000));
+        act(() => MockWebSocket.last().close());
+
+        const exhausted = MockWebSocket.instances.length;
+        act(() => window.dispatchEvent(new Event("online")));
+        expect(MockWebSocket.instances.length).toBe(exhausted + 1);
     });
 });

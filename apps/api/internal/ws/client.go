@@ -54,23 +54,36 @@ func (c *Client) readPump() {
 
 		var msg ClientMessage
 		if err := json.Unmarshal(message, &msg); err == nil {
-			if msg.Action == "subscribe" {
+			switch msg.Action {
+			case ActionSubscribe:
 				c.mu.Lock()
 				for _, ch := range msg.Channels {
 					c.subs[ch] = true
 					c.hub.subscribe(c, ch)
 				}
 				c.mu.Unlock()
-			} else if msg.Action == "unsubscribe" {
+			case ActionUnsubscribe:
 				c.mu.Lock()
 				for _, ch := range msg.Channels {
 					delete(c.subs, ch)
 					c.hub.unsubscribe(c, ch)
 				}
 				c.mu.Unlock()
+			case ActionPing:
+				c.pong()
 			}
 		}
 	}
+}
+
+// pong answers an application-level ping (see EventPong).
+//
+// The send goes through the hub rather than straight to c.send: the hub owns
+// that channel's lifetime and closes it during unregister and shutdown, and
+// this is the read pump, which runs concurrently with both. See
+// Hub.sendToClient.
+func (c *Client) pong() {
+	c.hub.sendToClient(c, Event{Type: EventPong, Timestamp: time.Now()})
 }
 
 // writePump pumps messages from the hub to the websocket connection.

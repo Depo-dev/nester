@@ -1,6 +1,7 @@
 "use client";
 
 import { useWebSocketContext } from "@/components/websocket-provider";
+import { useRelativeAge } from "@/hooks/useRelativeAge";
 import { type WSConnectionStatus } from "@/lib/ws-events";
 import { cn } from "@/lib/utils";
 
@@ -11,12 +12,13 @@ interface StatusMeta {
     label: string;
     title: string;
     pulse: boolean;
-    stale: boolean;
 }
 
-// Visual + copy for each connection state. "offline" means every reconnect
-// attempt was exhausted and we have fallen back to REST polling, so the user
-// is still seeing data — just on a delay.
+// Visual + copy for each connection state.
+//
+// The distinction that matters is "live" vs "not live": in either non-live
+// state the number on screen is a remembered value, not a current one, and
+// the badge has to say so rather than implying the feed is merely slow.
 function statusMeta(status: WSConnectionStatus): StatusMeta {
     switch (status) {
         case "connected":
@@ -27,7 +29,6 @@ function statusMeta(status: WSConnectionStatus): StatusMeta {
                 label: "Live",
                 title: "Connected and receiving real-time updates",
                 pulse: true,
-                stale: false,
             };
         case "reconnecting":
             return {
@@ -35,9 +36,8 @@ function statusMeta(status: WSConnectionStatus): StatusMeta {
                 text: "text-amber-700",
                 bg: "bg-amber-50 border-amber-200",
                 label: "Reconnecting…",
-                title: "Connection lost — retrying with back-off",
+                title: "Connection lost — retrying. Values shown are not live.",
                 pulse: true,
-                stale: true,
             };
         case "offline":
         default:
@@ -45,27 +45,12 @@ function statusMeta(status: WSConnectionStatus): StatusMeta {
                 dot: "bg-red-500",
                 text: "text-red-700",
                 bg: "bg-red-50 border-red-200",
-                label: "Using delayed updates",
-                title: "Disconnected — falling back to polling every 30s",
+                label: "Disconnected",
+                title:
+                    "Disconnected — values shown are not live. Falling back to periodic refresh.",
                 pulse: false,
-                stale: true,
             };
     }
-}
-
-/**
- * Returns a human-readable relative timestamp like "2m ago" or "just now".
- */
-function relativeTime(ms: number): string {
-    const seconds = Math.floor((Date.now() - ms) / 1000);
-    if (seconds < 5) return "just now";
-    if (seconds < 60) return `${seconds}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
 }
 
 /**
@@ -74,20 +59,24 @@ function relativeTime(ms: number): string {
  * Reflects the live WebSocket state:
  *   - green "Live" when connected
  *   - amber "Reconnecting…" while backing off between attempts
- *   - red "Using delayed updates" once retries are exhausted (polling fallback)
+ *   - red "Disconnected" once retries are exhausted
  *
- * When not connected, shows the last time data was received so the user
- * can assess how stale the displayed figures may be.
+ * In both non-live states it also reports when the data was last confirmed
+ * current, so a frozen view is legible as frozen.
  */
 export function ConnectionStatusBadge({ className }: { className?: string }) {
-    const { status, lastEventTime } = useWebSocketContext();
+    const { status, lastUpdatedAt, manualReconnect } = useWebSocketContext();
     const meta = statusMeta(status);
+    const isStale = status !== "connected";
+    const age = useRelativeAge(isStale ? lastUpdatedAt : null, isStale);
 
     return (
         <div
             role="status"
             aria-live="polite"
-            title={meta.title}
+            data-testid="connection-status"
+            data-status={status}
+            title={age ? `${meta.title} Last updated ${age}.` : meta.title}
             className={cn(
                 "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
                 meta.bg,
@@ -106,12 +95,24 @@ export function ConnectionStatusBadge({ className }: { className?: string }) {
                 )}
                 <span className={cn("relative inline-flex h-2 w-2 rounded-full", meta.dot)} />
             </span>
-            <span className="hidden sm:inline">
-                {meta.label}
-                {meta.stale && lastEventTime !== null && (
-                    <span className="ml-1 opacity-70">({relativeTime(lastEventTime)})</span>
-                )}
-            </span>
+            <span className="hidden sm:inline">{meta.label}</span>
+            {age && (
+                <span className="hidden sm:inline font-normal opacity-75" data-testid="connection-last-updated">
+                    · updated {age}
+                </span>
+            )}
+            {status === "offline" && (
+                // Retries are deliberately bounded, so give the user the way
+                // back rather than making a page reload the only option.
+                <button
+                    type="button"
+                    onClick={manualReconnect}
+                    data-testid="connection-retry"
+                    className="ml-0.5 rounded-full px-1.5 underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
+                >
+                    Retry
+                </button>
+            )}
         </div>
     );
 }
