@@ -42,6 +42,13 @@ var (
 	// recorded" and safely no-op rather than fail.
 	ErrDuplicateTransaction = errors.New("transaction already recorded")
 	ErrCapacityExceeded     = errors.New("deposit would exceed vault capacity limit")
+	// ErrUserCancelled is returned when a user declines the wallet signature
+	// or abandons an attempt before submission. It exists to keep that case
+	// distinguishable from a system fault: the deposit and withdrawal SLIs
+	// (nester#1056) exclude cancellations from the denominator, and without a
+	// dedicated sentinel a cancellation would be classified as an internal
+	// failure and burn the error budget for something the system did right.
+	ErrUserCancelled = errors.New("attempt cancelled by user")
 )
 
 const (
