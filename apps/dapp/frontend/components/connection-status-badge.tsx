@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useWebSocketContext } from "@/components/websocket-provider";
+import { useRelativeAge } from "@/hooks/useRelativeAge";
 import { type WSConnectionStatus } from "@/lib/ws-events";
 import { cn } from "@/lib/utils";
 
@@ -54,43 +54,6 @@ function statusMeta(status: WSConnectionStatus): StatusMeta {
 }
 
 /**
- * Short relative age, e.g. "just now", "3m ago", "2h ago".
- *
- * Deliberately coarse: the point is to tell the user roughly how much they
- * should trust the number, not to give a precise clock reading.
- */
-export function formatRelativeAge(from: number, now: number = Date.now()): string {
-    const seconds = Math.max(0, Math.floor((now - from) / 1000));
-    if (seconds < 10) return "just now";
-    if (seconds < 60) return `${seconds}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-}
-
-/**
- * Current time, refreshed on a timer so a relative age keeps counting up
- * while the link is down. Ticks only while `active`, so a live connection
- * costs nothing. The zero-delay kick re-reads the clock on activation, which
- * matters after a long hidden stretch left the stored value far behind.
- */
-function useTick(active: boolean, intervalMs = 15_000): number {
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        if (!active) return;
-        const kick = setTimeout(() => setNow(Date.now()), 0);
-        const id = setInterval(() => setNow(Date.now()), intervalMs);
-        return () => {
-            clearTimeout(kick);
-            clearInterval(id);
-        };
-    }, [active, intervalMs]);
-    return now;
-}
-
-/**
  * Compact connection-status badge for the app header.
  *
  * Reflects the live WebSocket state:
@@ -105,9 +68,7 @@ export function ConnectionStatusBadge({ className }: { className?: string }) {
     const { status, lastUpdatedAt, manualReconnect } = useWebSocketContext();
     const meta = statusMeta(status);
     const isStale = status !== "connected";
-    const now = useTick(isStale);
-
-    const age = isStale && lastUpdatedAt !== null ? formatRelativeAge(lastUpdatedAt, now) : null;
+    const age = useRelativeAge(isStale ? lastUpdatedAt : null, isStale);
 
     return (
         <div

@@ -32,8 +32,8 @@ import { AppShell } from "@/components/app-shell";
 import { useOfflineStatus } from "@/hooks/useOfflineStatus";
 import { LiveValue } from "@/components/live-value";
 import { useWebSocketContext } from "@/components/websocket-provider";
+import { useRelativeAge } from "@/hooks/useRelativeAge";
 import { useLocale, useTranslations } from "@/context/locale-context";
-import { formatDistanceToNow } from "date-fns";
 import { useVaults, type VaultWithPerf } from "@/hooks/useVaults";
 import { useSettlements } from "@/hooks/useSettlements";
 import { useVaultHistory } from "@/hooks/useVaultHistory";
@@ -468,9 +468,14 @@ export default function Dashboard() {
     // only knows about browser connectivity, which can look fine while the
     // socket is blackholed.
     const balanceAsOf = useMemo(
-        () => (wsLastUpdatedAt !== null ? new Date(wsLastUpdatedAt) : lastSynced),
+        () => (wsLastUpdatedAt !== null ? wsLastUpdatedAt : lastSynced?.getTime() ?? null),
         [wsLastUpdatedAt, lastSynced]
     );
+
+    // Ticks on a timer rather than formatting during render. Without it the
+    // line freezes at whatever it said when the socket dropped — which is the
+    // one moment it needs to be accurate.
+    const balanceAge = useRelativeAge(balanceAsOf, true, 30_000);
 
     // Live data
     const { vaults, isLoading: vaultsLoading } = useVaults(userId);
@@ -603,9 +608,9 @@ export default function Dashboard() {
                                 </LiveValue>
                             </p>
                             <p className="mt-2 text-[12px] text-black/35 dark:text-white/35 tracking-wide">{t("dashboard.totalBalance")}</p>
-                            {balanceAsOf && (
+                            {balanceAge && (
                                 <p className="mt-1.5 text-[11px] text-black/25 dark:text-white/25" data-testid="balance-last-updated">
-                                    Last updated {formatDistanceToNow(balanceAsOf)} ago
+                                    Last updated {balanceAge}
                                 </p>
                             )}
                         </div>

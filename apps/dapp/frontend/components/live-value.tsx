@@ -2,7 +2,7 @@
 
 import { type ReactNode } from "react";
 import { useWebSocketContext } from "@/components/websocket-provider";
-import { formatRelativeAge } from "@/components/connection-status-badge";
+import { useRelativeAge } from "@/hooks/useRelativeAge";
 import { cn } from "@/lib/utils";
 
 interface LiveValueProps {
@@ -30,7 +30,10 @@ interface LiveValueProps {
 export function LiveValue({ children, className, label = "This value" }: LiveValueProps) {
     const { isStale, lastUpdatedAt } = useWebSocketContext();
 
-    const age = lastUpdatedAt !== null ? formatRelativeAge(lastUpdatedAt) : null;
+    // Ticks while stale. Formatting during render would freeze this string at
+    // the moment the socket dropped, and the sr-only note below is the only
+    // freshness signal a screen reader gets from the figure itself.
+    const age = useRelativeAge(lastUpdatedAt, isStale);
     const staleNote = age
         ? `${label} is not live — last updated ${age}.`
         : `${label} is not live.`;
