@@ -24,6 +24,12 @@ const defaultDevJWTSecret = "dev-nester-jwt-secret-change-in-production" // #nos
 // bank_accounts.key_version VARCHAR(32) column.
 const maxKeyVersionLen = 32
 
+// maxDatabasePoolSize bounds DATABASE_POOL_SIZE. The value is narrowed to
+// int32 for pgxpool's MaxConns, so it must stay well inside int32 range on
+// every architecture; the limit is far above any workable pool size, so it
+// only rejects misconfiguration.
+const maxDatabasePoolSize = 10000
+
 type Config struct {
 	environment           string
 	server                ServerConfig
@@ -214,6 +220,14 @@ type RateLimitConfig struct {
 	settlementLimit   int
 	settlementWindow  time.Duration
 	trustedProxyCount int
+
+	// Cost-weighted quota (see middleware.CostQuota). This meters downstream
+	// work per user rather than request count, so an expensive route can be
+	// bounded without throttling ordinary browsing.
+	quotaEnabled     bool
+	quotaLimit       int
+	quotaWindow      time.Duration
+	quotaBypassToken string
 }
 
 type LogConfig struct {
@@ -319,6 +333,16 @@ func Load() (*Config, error) {
 			settlementLimit:   loader.intDefault("RATELIMIT_SETTLEMENT_LIMIT", 5),
 			settlementWindow:  loader.durationDefault("RATELIMIT_SETTLEMENT_WINDOW", 1*time.Minute),
 			trustedProxyCount: loader.intDefault("RATELIMIT_TRUSTED_PROXY_COUNT", 0),
+
+			// 300 cost units/minute. An ordinary read costs 1, so normal
+			// browsing never approaches it (the global 100 req/min per IP
+			// binds first); an intelligence relay call costs 25, so the
+			// quota is what actually bounds the expensive traffic.
+			// Deliberately per-environment: staging can run tighter.
+			quotaEnabled:     loader.boolDefault("RATELIMIT_QUOTA_ENABLED", true),
+			quotaLimit:       loader.intDefault("RATELIMIT_QUOTA_LIMIT", 300),
+			quotaWindow:      loader.durationDefault("RATELIMIT_QUOTA_WINDOW", 1*time.Minute),
+			quotaBypassToken: loader.stringDefault("RATELIMIT_QUOTA_BYPASS_TOKEN", ""),
 		},
 		log: LogConfig{
 			level:  strings.ToLower(loader.stringDefault("LOG_LEVEL", "info")),
@@ -801,8 +825,14 @@ func (c *Config) validate(loader *envLoader) {
 		loader.addError("MIGRATIONS_DIR must not be empty")
 	}
 
-	if c.database.poolSize <= 0 {
-		loader.addError("DATABASE_POOL_SIZE must be greater than 0")
+	// Upper bound as well as lower: poolSize is an int parsed from the
+	// environment and is later narrowed to int32 for pgxpool's MaxConns, so an
+	// oversized value would silently overflow. maxDatabasePoolSize is far above
+	// any workable pool size, so this only rejects misconfiguration.
+	if c.database.poolSize <= 0 || c.database.poolSize > maxDatabasePoolSize {
+		loader.addError(fmt.Sprintf(
+			"DATABASE_POOL_SIZE must be between 1 and %d", maxDatabasePoolSize,
+		))
 	}
 
 	if c.database.connectionTimeout <= 0 {
@@ -894,6 +924,21 @@ func (c *Config) validate(loader *envLoader) {
 	}
 	if c.rateLimit.trustedProxyCount < 0 {
 		loader.addError("RATELIMIT_TRUSTED_PROXY_COUNT must be zero or greater")
+	}
+	// Only validated when enabled: a deployment that has turned quotas off
+	// should not be forced to keep their numbers meaningful.
+	if c.rateLimit.quotaEnabled {
+		if c.rateLimit.quotaLimit <= 0 {
+			loader.addError("RATELIMIT_QUOTA_LIMIT must be greater than 0")
+		}
+		if c.rateLimit.quotaWindow <= 0 {
+			loader.addError("RATELIMIT_QUOTA_WINDOW must be greater than 0")
+		} else if c.rateLimit.quotaWindow < time.Millisecond {
+			// The token bucket derives its refill rate from the window in
+			// whole milliseconds; a sub-millisecond window truncates to zero
+			// and the bucket would never refill.
+			loader.addError("RATELIMIT_QUOTA_WINDOW must be at least 1ms")
+		}
 	}
 
 	if !isOneOf(c.log.level, "debug", "info", "warn", "error") {
@@ -1156,6 +1201,29 @@ func (r RateLimitConfig) SettlementWindow() time.Duration {
 
 func (r RateLimitConfig) TrustedProxyCount() int {
 	return r.trustedProxyCount
+}
+
+// QuotaEnabled reports whether cost-weighted quota accounting is on. Turning it
+// off is the documented way to run a load test without re-tuning every limit.
+func (r RateLimitConfig) QuotaEnabled() bool {
+	return r.quotaEnabled
+}
+
+// QuotaLimit is the per-subject bucket capacity in cost units per QuotaWindow.
+func (r RateLimitConfig) QuotaLimit() int {
+	return r.quotaLimit
+}
+
+// QuotaWindow is how long a full bucket takes to refill from empty.
+func (r RateLimitConfig) QuotaWindow() time.Duration {
+	return r.quotaWindow
+}
+
+// QuotaBypassToken, when non-empty, allows a request presenting it in the
+// X-RateLimit-Bypass header to skip quota accounting. Empty by default, which
+// disables the mechanism entirely.
+func (r RateLimitConfig) QuotaBypassToken() string {
+	return r.quotaBypassToken
 }
 
 type envLoader struct {

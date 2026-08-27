@@ -40,6 +40,14 @@ interface WebSocketContextValue {
     status: WSConnectionStatus;
     /** True only when the socket is fully open */
     isConnected: boolean;
+    /**
+     * True when displayed values may no longer reflect the chain — i.e. the
+     * socket is not live. Components rendering a balance must use this to
+     * visually distinguish the value from a live one.
+     */
+    isStale: boolean;
+    /** Epoch ms of the last confirmed sync (event or HTTP reconcile) */
+    lastUpdatedAt: number | null;
     /** The most recent raw event received */
     lastEvent: WSEvent | null;
     /** Imperatively subscribe to an additional channel */
@@ -55,6 +63,8 @@ interface WebSocketContextValue {
 const WebSocketContext = createContext<WebSocketContextValue>({
     status: "offline",
     isConnected: false,
+    isStale: true,
+    lastUpdatedAt: null,
     lastEvent: null,
     subscribe: () => {},
     unsubscribe: () => {},
@@ -74,14 +84,36 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "";
  * Must be rendered **inside** <PortfolioProvider> and <NotificationsProvider>
  * so it can call usePortfolio() / useNotifications() to dispatch live updates.
  */
-export function WebSocketProvider({ children }: { children: ReactNode }) {
+interface WebSocketProviderProps {
+    children: ReactNode;
+    /**
+     * Channels to subscribe to instead of the wallet-derived set.
+     *
+     * Only the E2E harness passes this. The production tree subscribes on
+     * behalf of a connected wallet, which a browser-driven test cannot
+     * produce; without an override the harness would subscribe to nothing and
+     * the re-subscribe-on-reconnect behaviour would be untestable.
+     */
+    channelsOverride?: string[];
+    /** Heartbeat ping interval in ms. Harness-only; see channelsOverride. */
+    heartbeatInterval?: number;
+    /** Pong grace period in ms. Harness-only; see channelsOverride. */
+    heartbeatTimeout?: number;
+}
+
+export function WebSocketProvider({
+    children,
+    channelsOverride,
+    heartbeatInterval,
+    heartbeatTimeout,
+}: WebSocketProviderProps) {
     const { address } = useWallet();
     const { applyBalanceUpdate, applyYieldAccrual, refreshBalances } = usePortfolio();
     const { addNotification, setConnectionState } = useNotifications();
 
     const token = address ? `mock_jwt_${address}` : "";
 
-    const channels = useMemo<string[]>(() => {
+    const walletChannels = useMemo<string[]>(() => {
         if (!address) return [];
         return [
             `user:${address}`,
@@ -90,6 +122,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
             "notifications:safety",
         ];
     }, [address]);
+
+    const channels = channelsOverride ?? walletChannels;
 
     const handleEvent = useCallback(
         (event: WSEvent) => {
@@ -285,10 +319,22 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         [applyBalanceUpdate, applyYieldAccrual, addNotification]
     );
 
+    // Pull the authoritative balances over HTTP after every (re)connect.
+    // The hub replays a bounded per-channel history on subscribe, which is
+    // not the same as a snapshot — reconciling is what makes a reconnected
+    // client's numbers trustworthy rather than merely recent.
+    //
+    // Notifications reconcile on their own via setConnectionState below;
+    // duplicating that call here would double-fetch on every reconnect.
+    const reconcile = useCallback(async () => {
+        await refreshBalances();
+    }, [refreshBalances]);
+
     const {
         isConnected,
         status,
         lastEvent,
+        lastUpdatedAt,
         subscribe,
         unsubscribe,
         disconnect,
@@ -299,6 +345,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         channels,
         onEvent: handleEvent,
         onPoll: refreshBalances,
+        onReconcile: reconcile,
+        heartbeatInterval,
+        heartbeatTimeout,
     });
 
     const hasMountedRef = useRef(false);
@@ -314,18 +363,20 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         setConnectionState(WS_URL ? isConnected : false);
     }, [isConnected, setConnectionState]);
 
-    const value = useMemo<WebSocketContextValue>(
-        () => ({
-            status: WS_URL ? status : "offline",
+    const value = useMemo<WebSocketContextValue>(() => {
+        const effectiveStatus: WSConnectionStatus = WS_URL ? status : "offline";
+        return {
+            status: effectiveStatus,
             isConnected: WS_URL ? isConnected : false,
+            isStale: effectiveStatus !== "connected",
+            lastUpdatedAt,
             lastEvent,
             subscribe,
             unsubscribe,
             disconnect,
             manualReconnect,
-        }),
-        [status, isConnected, lastEvent, subscribe, unsubscribe, disconnect, manualReconnect]
-    );
+        };
+    }, [status, isConnected, lastUpdatedAt, lastEvent, subscribe, unsubscribe, disconnect, manualReconnect]);
 
     return (
         <WebSocketContext.Provider value={value}>

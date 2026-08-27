@@ -159,6 +159,49 @@ jobs:
       - name: Report non-blocking JS advisories (dapp)
         run: pnpm audit --audit-level=moderate || true
 
+  # Browser-level tests for the dapp. Split from dapp-frontend because it needs
+  # a browser download and boots a dev server, so it is materially slower than
+  # the Vitest job and there is no reason to make unit-test feedback wait on it.
+  #
+  # These specs force their failure modes with route interception (a blocked
+  # WebSocket, a stalled API response) rather than by pointing the app at a real
+  # backend, so they need nothing but the dev server. smoke.spec.ts is excluded
+  # by playwright.config.ts — it is full-stack and runs post-deploy against
+  # staging in deploy-staging.yml.
+  dapp-e2e:
+    name: Dapp E2E (Playwright)
+    needs: changes
+    if: needs.changes.outputs.dapp == 'true' || needs.changes.outputs.shared == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @nester/dapp exec playwright install chromium --with-deps
+
+      # playwright.config.ts starts `next dev` on :3001 and sets the harness
+      # env vars it needs, so there is no separate server step here.
+      - name: Run E2E tests
+        run: pnpm --filter @nester/dapp run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/dapp/frontend/playwright-report/
+          retention-days: 7
+
   # SLO rules (nester#1056). Validates the recording and alerting rules and
   # runs the burn-rate unit tests against the same files Prometheus loads, so
   # a threshold edited without updating its arithmetic fails the build rather
