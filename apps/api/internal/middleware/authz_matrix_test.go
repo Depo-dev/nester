@@ -97,9 +97,8 @@ var authzMatrix = []AuthzRoute{
 	{Method: "GET", Path: "/api/v1/transactions/00000000000000000000-0"},
 
 	// ── Portfolio / valuation / performance ──────────────────────────────
-	{Method: "GET", Path: "/api/v1/portfolio"},
+	{Method: "GET", Path: "/api/v1/portfolio/summary"},
 	{Method: "GET", Path: "/api/v1/portfolio/valuation"},
-	{Method: "GET", Path: "/api/v1/performance"},
 	{Method: "GET", Path: "/api/v1/performance/snapshots"},
 
 	// ── Settlements ──────────────────────────────────────────────────────
@@ -108,36 +107,190 @@ var authzMatrix = []AuthzRoute{
 
 	// ── Activity / notifications ─────────────────────────────────────────
 	{Method: "GET", Path: "/api/v1/activity"},
-	{Method: "GET", Path: "/api/v1/notifications"},
-	{Method: "PATCH", Path: "/api/v1/notifications/00000000-0000-0000-0000-000000000000/read"},
 
 	// ── User ─────────────────────────────────────────────────────────────
 	{Method: "GET", Path: "/api/v1/users/me"},
-	{Method: "GET", Path: "/api/v1/users/by-wallet/" + walletA},
 
 	// ── Watchlist / savings goals / schedules ────────────────────────────
-	{Method: "GET", Path: "/api/v1/watchlist"},
-	{Method: "POST", Path: "/api/v1/watchlist"},
+	{Method: "GET", Path: "/api/v1/users/watchlist"},
+	{Method: "POST", Path: "/api/v1/users/watchlist"},
 	{Method: "GET", Path: "/api/v1/users/savings-goals"},
 	{Method: "POST", Path: "/api/v1/users/savings-goals"},
 	{Method: "GET", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000"},
-	{Method: "PUT", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000"},
 	{Method: "DELETE", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000"},
 	{Method: "GET", Path: "/api/v1/users/savings-schedules"},
-	{Method: "POST", Path: "/api/v1/users/savings-schedules"},
 
 	// ── Admin (requires admin role) ──────────────────────────────────────
 	{Method: "GET", Path: "/api/v1/admin/users", RequireRole: "admin"},
-	{Method: "POST", Path: "/api/v1/admin/users", RequireRole: "admin"},
 
 	// ── Banks (public) ───────────────────────────────────────────────────
-	{Method: "GET", Path: "/api/v1/banks/supported", Public: true},
+	{Method: "GET", Path: "/api/v1/banks", Public: false},
 
 	// ── Yields (public) ───────────────────────────────────────────────
 	// NOTE: prefix rule "/api/v1/yields/" requires trailing slash; the
 	// exact path "/api/v1/yields" (no slash) falls through to protected.
 	{Method: "GET", Path: "/api/v1/yields/", Public: true},
 	{Method: "GET", Path: "/api/v1/yields/00000000-0000-0000-0000-000000000000", Public: true},
+
+	// ── Routes recovered from the handler registrations ────────────────
+	// Added when the coverage guard showed the original matrix exercised
+	// 58 of 178 registered routes, leaving the whole admin, bank-account,
+	// and intelligence surface unverified.
+	// admin
+	{Method: "DELETE", Path: "/api/v1/admin/savings-goal-templates/00000000-0000-0000-0000-000000000000", RequireRole: "admin"},
+	{Method: "DELETE", Path: "/api/v1/admin/vaults/00000000-0000-0000-0000-000000000000/allocations/00000000-0000-0000-0000-000000000000", RequireRole: "admin"},
+	{Method: "GET", Path: "/api/v1/admin/audit/verify", RequireRole: "admin"},
+	{Method: "GET", Path: "/api/v1/admin/backfill", RequireRole: "admin"},
+	{Method: "GET", Path: "/api/v1/admin/backfill/00000000-0000-0000-0000-000000000000", RequireRole: "admin"},
+	{Method: "GET", Path: "/api/v1/admin/dashboard", RequireRole: "admin"},
+	{Method: "GET", Path: "/api/v1/admin/health", RequireRole: "admin"},
+	{Method: "GET", Path: "/api/v1/admin/savings-goal-templates", RequireRole: "admin"},
+	{Method: "GET", Path: "/api/v1/admin/scheduler/leadership", RequireRole: "admin"},
+	{Method: "GET", Path: "/api/v1/admin/settlements", RequireRole: "admin"},
+	{Method: "GET", Path: "/api/v1/admin/users/00000000-0000-0000-0000-000000000000/money-path", RequireRole: "admin"},
+	{Method: "GET", Path: "/api/v1/admin/vaults", RequireRole: "admin"},
+	{Method: "GET", Path: "/api/v1/admin/vaults/00000000-0000-0000-0000-000000000000", RequireRole: "admin"},
+	{Method: "PATCH", Path: "/api/v1/admin/savings-goal-templates/00000000-0000-0000-0000-000000000000", RequireRole: "admin"},
+	{Method: "PATCH", Path: "/api/v1/admin/users/00000000-0000-0000-0000-000000000000/kyc", RequireRole: "admin"},
+	{Method: "PATCH", Path: "/api/v1/admin/vaults/00000000-0000-0000-0000-000000000000/allocations/00000000-0000-0000-0000-000000000000", RequireRole: "admin"},
+	{Method: "POST", Path: "/api/v1/admin/backfill", RequireRole: "admin"},
+	{Method: "POST", Path: "/api/v1/admin/backfill/00000000-0000-0000-0000-000000000000/resume", RequireRole: "admin"},
+	{Method: "POST", Path: "/api/v1/admin/savings-goal-templates", RequireRole: "admin"},
+	{Method: "POST", Path: "/api/v1/admin/sync-events", RequireRole: "admin"},
+	{Method: "POST", Path: "/api/v1/admin/vaults/00000000-0000-0000-0000-000000000000/allocations", RequireRole: "admin"},
+	{Method: "POST", Path: "/api/v1/admin/vaults/00000000-0000-0000-0000-000000000000/pause", RequireRole: "admin"},
+	{Method: "POST", Path: "/api/v1/admin/vaults/00000000-0000-0000-0000-000000000000/rebalance", RequireRole: "admin"},
+	{Method: "POST", Path: "/api/v1/admin/vaults/00000000-0000-0000-0000-000000000000/unpause", RequireRole: "admin"},
+
+	// analytics
+	{Method: "GET", Path: "/api/v1/analytics/users/00000000-0000-0000-0000-000000000000"},
+
+	// bank-accounts
+	{Method: "DELETE", Path: "/api/v1/bank-accounts/users/00000000-0000-0000-0000-000000000000/00000000-0000-0000-0000-000000000000"},
+	{Method: "GET", Path: "/api/v1/bank-accounts/users/00000000-0000-0000-0000-000000000000"},
+	{Method: "PATCH", Path: "/api/v1/bank-accounts/users/00000000-0000-0000-0000-000000000000/00000000-0000-0000-0000-000000000000"},
+	{Method: "POST", Path: "/api/v1/bank-accounts/users/00000000-0000-0000-0000-000000000000"},
+
+	// banks
+	{Method: "GET", Path: "/api/v1/banks"},
+	{Method: "GET", Path: "/api/v1/banks/resolve", Public: true},
+
+	// intelligence
+	{Method: "GET", Path: "/api/v1/intelligence/market"},
+	{Method: "GET", Path: "/api/v1/intelligence/portfolio/00000000-0000-0000-0000-000000000000"},
+	{Method: "GET", Path: "/api/v1/intelligence/recommend/vault"},
+	{Method: "POST", Path: "/api/v1/intelligence/analyze"},
+	{Method: "POST", Path: "/api/v1/intelligence/chat"},
+	{Method: "POST", Path: "/api/v1/intelligence/coaching"},
+	{Method: "POST", Path: "/api/v1/intelligence/recommend/vault"},
+	{Method: "POST", Path: "/api/v1/intelligence/savings-plan"},
+	{Method: "POST", Path: "/api/v1/intelligence/tools/00000000-0000-0000-0000-000000000000/confirm"},
+
+	// internal
+	{Method: "POST", Path: "/api/v1/internal/intelligence/tool-audit", RequireRole: "service"},
+
+	// portfolio
+	{Method: "GET", Path: "/api/v1/portfolio/00000000-0000-0000-0000-000000000000/insights"},
+	{Method: "GET", Path: "/api/v1/portfolio/summary"},
+
+	// rates
+	{Method: "GET", Path: "/api/v1/rates"},
+
+	// savings-goal-templates
+	{Method: "GET", Path: "/api/v1/savings-goal-templates"},
+
+	// savings-goals
+	{Method: "GET", Path: "/api/v1/savings-goals/shared/00000000-0000-0000-0000-000000000000", Public: true},
+
+	// settlements
+	{Method: "GET", Path: "/api/v1/settlements/00000000-0000-0000-0000-000000000000"},
+	{Method: "PATCH", Path: "/api/v1/settlements/00000000-0000-0000-0000-000000000000/status"},
+
+	// tools
+	{Method: "POST", Path: "/api/v1/tools/projection"},
+	{Method: "POST", Path: "/api/v1/tools/simulation"},
+
+	// user-vaults
+	{Method: "GET", Path: "/api/v1/user-vaults/00000000-0000-0000-0000-000000000000"},
+
+	// users
+	{Method: "DELETE", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/schedule"},
+	{Method: "DELETE", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/schedules/00000000-0000-0000-0000-000000000000"},
+	{Method: "DELETE", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/share"},
+	{Method: "DELETE", Path: "/api/v1/users/watchlist/00000000-0000-0000-0000-000000000000"},
+	{Method: "GET", Path: "/api/v1/users/digest-ledger"},
+	{Method: "GET", Path: "/api/v1/users/digest/latest"},
+	{Method: "GET", Path: "/api/v1/users/kyc/00000000-0000-0000-0000-000000000000"},
+	{Method: "GET", Path: "/api/v1/users/notification-preferences"},
+	{Method: "GET", Path: "/api/v1/users/profile"},
+	{Method: "GET", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/coaching"},
+	{Method: "GET", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/contributions"},
+	{Method: "GET", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/notification-preferences"},
+	{Method: "GET", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/schedules"},
+	{Method: "GET", Path: "/api/v1/users/savings-goals/summary"},
+	{Method: "GET", Path: "/api/v1/users/wallet/" + walletA},
+	{Method: "GET", Path: "/api/v1/users/watchlist"},
+	{Method: "PATCH", Path: "/api/v1/users/notification-preferences"},
+	{Method: "PATCH", Path: "/api/v1/users/profile"},
+	{Method: "PATCH", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000"},
+	{Method: "PATCH", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/archive"},
+	{Method: "PATCH", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/notification-preferences"},
+	{Method: "PATCH", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/pause"},
+	{Method: "PATCH", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/resume"},
+	{Method: "PATCH", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/schedule"},
+	{Method: "PATCH", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/unarchive"},
+	{Method: "POST", Path: "/api/v1/users"},
+	{Method: "POST", Path: "/api/v1/users/device-tokens"},
+	{Method: "POST", Path: "/api/v1/users/kyc/00000000-0000-0000-0000-000000000000"},
+	{Method: "POST", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/complete"},
+	{Method: "POST", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/restore"},
+	{Method: "POST", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/schedule"},
+	{Method: "POST", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/schedules"},
+	{Method: "POST", Path: "/api/v1/users/savings-goals/00000000-0000-0000-0000-000000000000/share"},
+	{Method: "POST", Path: "/api/v1/users/savings-goals/deposit"},
+	{Method: "POST", Path: "/api/v1/users/savings-goals/from-template"},
+	{Method: "POST", Path: "/api/v1/users/watchlist"},
+
+	// vaults
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/analytics"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/apy-history"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/emergency-queue"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/harvest/status"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/penalty-distributions"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/penalty-events"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/performance"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/performance/apy"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/performance/history"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/projection"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/rebalance-completions"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/rebalance-history"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/rebalance-legs"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/recommendations"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/risk"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/risk/history"},
+	{Method: "GET", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/tvl"},
+	{Method: "GET", Path: "/api/v1/vaults/tvl"},
+	{Method: "POST", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/rebalance/execute"},
+	{Method: "POST", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/rebalance/suggest"},
+	{Method: "POST", Path: "/api/v1/vaults/00000000-0000-0000-0000-000000000000/risk/refresh"},
+
+	// webhooks
+	{Method: "DELETE", Path: "/api/v1/webhooks/00000000-0000-0000-0000-000000000000"},
+	{Method: "GET", Path: "/api/v1/webhooks"},
+	{Method: "GET", Path: "/api/v1/webhooks/00000000-0000-0000-0000-000000000000/deliveries"},
+	{Method: "POST", Path: "/api/v1/webhooks"},
+	{Method: "POST", Path: "/api/v1/webhooks/deliveries/00000000-0000-0000-0000-000000000000/redeliver"},
+
+	// yield-opportunities
+	{Method: "GET", Path: "/api/v1/yield-opportunities"},
+	{Method: "GET", Path: "/api/v1/yield-opportunities/compare"},
+
+	// yields
+	{Method: "DELETE", Path: "/api/v1/yields/bookmarks/aave-v3", Public: true},
+	{Method: "GET", Path: "/api/v1/yields/aave-v3/apy-history", Public: true},
+	{Method: "GET", Path: "/api/v1/yields/bookmarks", Public: true},
+	{Method: "GET", Path: "/api/v1/yields/harvests", Public: true},
+	{Method: "POST", Path: "/api/v1/yields/bookmarks", Public: true},
 }
 
 // TestAuthorizationMatrix verifies the three-way authorization contract for
