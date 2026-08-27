@@ -29,6 +29,26 @@ var (
 	ErrVaultClosed          = errors.New("vault is closed")
 	ErrVaultNotActive       = errors.New("vault is not active")
 	ErrInsufficientBalance  = errors.New("vault balance must be zero before closing")
+	// ErrWithdrawalExceedsPosition is returned when a withdraw would take the
+	// caller's vault position below zero. Checked before any on-chain submit
+	// (nester#1076).
+	ErrWithdrawalExceedsPosition = errors.New("withdrawal would take the position below zero")
+	// ErrTxHashRequired is returned when a withdrawal is recorded without a
+	// verified on-chain transaction hash (nester#1076).
+	ErrTxHashRequired = errors.New("transaction hash is required")
+	// ErrUnverifiedChainTx is returned when the supplied hash cannot be
+	// reconciled against a matching vault contract event.
+	ErrUnverifiedChainTx = errors.New("on-chain transaction could not be verified")
+	// ErrChainVerificationUnavailable is returned when a caller supplies a
+	// transaction hash but no chain verifier is configured. Accepting the
+	// hash unverified would let a forged one move a balance, so the request
+	// is refused rather than trusted (nester#1075, nester#1076).
+	ErrChainVerificationUnavailable = errors.New("on-chain verification is not configured; transaction hash cannot be accepted")
+	// ErrChainEventCallerMismatch is returned when a verified contract event
+	// was emitted for a different account than the caller's wallet. Without
+	// this check one user can record another user's real withdrawal against
+	// their own vault (nester#1076).
+	ErrChainEventCallerMismatch = errors.New("on-chain event belongs to a different account")
 	ErrVaultForbidden       = errors.New("vault does not belong to caller")
 	ErrAllocationNotFound   = errors.New("allocation not found")
 	ErrAllocationHasBalance = errors.New("allocation has non-zero balance; set force=true to remove")

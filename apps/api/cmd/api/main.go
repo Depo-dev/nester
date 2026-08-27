@@ -330,6 +330,10 @@ func run() error {
 		baseLogger.Info("no signing configured: chain write operations are unavailable")
 	}
 
+	if cfg.Stellar().RPCURL() != "" {
+		vaultService.SetChainEventVerifier(service.NewStellarChainEventVerifier(cfg.Stellar().RPCURL()))
+	}
+
 	adminService := service.NewAdminService(
 		adminRepository,
 		vaultRepository,
@@ -596,9 +600,36 @@ func run() error {
 		},
 		baseLogger.WithGroup("tx-poller"),
 	)
+	// Reconciliation and pending-submission metrics (#1108). Without this the
+	// poller's findings reach the log only, so a divergence — a balance that
+	// disagrees with the chain — is invisible to alerting.
+	txPoller.SetMetrics(appMetrics)
 	pollerCtx, cancelPoller := context.WithCancel(context.Background())
 	defer cancelPoller()
 	go txPoller.Run(pollerCtx)
+
+	// Age the reconcile gauge between passes (#1108). RecordReconcileRun
+	// resets it to zero on each completed pass; nothing else would move it, so
+	// a poller that dies would leave the gauge frozen at zero and read as
+	// "just reconciled" forever — the same failure mode the indexer's
+	// lag_last_sample_age gauge exists to prevent.
+	go func() {
+		const reconcileAgeInterval = 15 * time.Second
+		ticker := time.NewTicker(reconcileAgeInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pollerCtx.Done():
+				return
+			case <-ticker.C:
+				last := txPoller.LastTickEnd()
+				if last.IsZero() {
+					continue
+				}
+				appMetrics.SetReconcileLastRunAge(time.Since(last))
+			}
+		}
+	}()
 
 	// notificationRateLimit/-Window bound how many notifications a user can
 	// receive per category in a burst (#829's "a burst of deposits does not
@@ -1237,10 +1268,12 @@ func run() error {
 	// posted as a transaction, and creating a savings goal). Requires auth
 	// context, so it must sit after authenticator.
 	idempotencyStore := postgres.NewIdempotencyRepository(db)
-	idempotencyMiddleware := middleware.IdempotencyMiddleware(idempotencyStore, []middleware.RouteMatch{
+	idempotencyRoutes := []middleware.RouteMatch{
 		{Method: http.MethodPost, Path: "/api/v1/transactions"},
 		{Method: http.MethodPost, Path: "/api/v1/users/savings-goals"},
-	})
+	}
+	idempotencyRoutes = append(idempotencyRoutes, middleware.VaultMoneyPathIdempotencyRoutes()...)
+	idempotencyMiddleware := middleware.IdempotencyMiddleware(idempotencyStore, idempotencyRoutes)
 	idempotencyPurgeCtx, cancelIdempotencyPurge := context.WithCancel(context.Background())
 	defer cancelIdempotencyPurge()
 	go runIdempotencyPurge(idempotencyPurgeCtx, idempotencyStore, baseLogger.WithGroup("idempotency-purge"))
