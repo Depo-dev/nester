@@ -1209,24 +1209,27 @@ func run() error {
 	defer cancelAPYScheduler()
 	go apySvc.StartScheduler(apySchedulerCtx)
 
-	authRules := []middleware.RouteRule{
-		{PathPrefix: "/health", Public: true},
-		{PathPrefix: "/healthz", Public: true},
-		{PathPrefix: "/readyz", Public: true},
-		{PathPrefix: "/ws", Public: true},
-		{Method: http.MethodPost, PathPrefix: "/api/v1/auth/challenge", Public: true},
-		{Method: http.MethodPost, PathPrefix: "/api/v1/auth/verify", Public: true},
-		{Method: http.MethodPost, PathPrefix: "/api/v1/auth/refresh", Public: true},
-		// No blanket "/api/v1/auth/" rule: logout, logout-all, and sessions
-		// must stay protected and fall through to the "/api/v1/" catch-all.
-		{PathPrefix: "/api/v1/banks/", Public: true},
-		{PathPrefix: "/api/v1/yields/", Public: true},
-		{PathPrefix: "/api/v1/savings-goals/shared/", Public: true},
-		{PathPrefix: "/api/v1/admin/", Public: false, Role: "admin"},
-		{PathPrefix: "/api/v1/internal/", Role: "service"},
-		{PathPrefix: "/api/v1/", Public: false},
-	}
+	// walletBindingCacheTTL bounds how long a stale wallet binding can still
+	// be accepted after the account's wallet changes. Short enough that a
+	// relink takes effect promptly, long enough to keep the check off the
+	// database on the hot path.
+	const walletBindingCacheTTL = 60 * time.Second
+
+	// Defined in the middleware package so the authorization matrix test
+	// exercises the same table the server serves, rather than a copy of it.
+	authRules := middleware.ProductionAuthRules()
 	authenticator := middleware.Authenticate(cfg.Auth().Secret(), cfg.Auth().ServiceAPIKey(), authRules, revocationCache)
+	// walletBinding ties a session to the wallet it was issued for (#1102). It
+	// rejects a token replayed against a different wallet's endpoints, and a
+	// token whose wallet is no longer the one linked to the account, so
+	// relinking a wallet invalidates sessions minted before the change.
+	//
+	// The resolver memoises the account's wallet briefly: the check runs on
+	// every authenticated request, and the lookup behind it is a row read.
+	// The TTL bounds how long a superseded binding can still be honoured.
+	walletBinding := middleware.WalletBindingCheck(
+		middleware.NewCachedWalletResolver(userRepository, walletBindingCacheTTL),
+	)
 	// Tell the rate-limit client-IP extractor how many trusted proxies sit in
 	// front of the API so it derives the originating client IP from
 	// X-Forwarded-For instead of collapsing all traffic onto the proxy address.
@@ -1354,16 +1357,18 @@ func run() error {
 							authRouteLimiter(
 								writeLimiter(
 									authenticator(
-										idempotencyMiddleware(
-											costQuota(
-												settlementLimiter(
-													walletLimiter(
-														middleware.LimitRequestBody(1 * 1024 * 1024)(
-															middleware.Logging(baseLogger)(
-																middleware.Tracing(
-																	cfg.Tracing().ServiceName(),
-																	cfg.Tracing().LatencyThreshold(),
-																)(mux),
+										walletBinding(
+											idempotencyMiddleware(
+												costQuota(
+													settlementLimiter(
+														walletLimiter(
+															middleware.LimitRequestBody(1 * 1024 * 1024)(
+																middleware.Logging(baseLogger)(
+																	middleware.Tracing(
+																		cfg.Tracing().ServiceName(),
+																		cfg.Tracing().LatencyThreshold(),
+																	)(mux),
+																),
 															),
 														),
 													),

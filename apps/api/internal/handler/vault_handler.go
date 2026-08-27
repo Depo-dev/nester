@@ -23,9 +23,9 @@ import (
 const maxRequestBodyBytes int64 = 1 << 20
 
 type VaultHandler struct {
-	service            *service.VaultService
-	rebalanceSvc       *service.VaultRebalanceService
-	wsHub              *ws.Hub
+	service              *service.VaultService
+	rebalanceSvc         *service.VaultRebalanceService
+	wsHub                *ws.Hub
 	rebalanceRateLimiter func(http.Handler) http.Handler
 }
 
@@ -176,7 +176,10 @@ func (h *VaultHandler) getVault(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if model.UserID.String() != user.ID {
-		response.WriteJSON(w, http.StatusForbidden, response.Err(http.StatusForbidden, "FORBIDDEN", "forbidden"))
+		// 404, not 403: a non-owner must not be able to tell an existing
+		// vault from one that was never there. Answering 403 here turns the
+		// endpoint into an existence oracle for other users' vault IDs.
+		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
 		return
 	}
 
@@ -243,7 +246,10 @@ func (h *VaultHandler) listUserVaults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if authUser.ID != userID.String() {
-		response.WriteJSON(w, http.StatusForbidden, response.Err(http.StatusForbidden, "FORBIDDEN", "forbidden"))
+		// 404, not 403: a non-owner must not be able to tell an existing
+		// vault from one that was never there. Answering 403 here turns the
+		// endpoint into an existence oracle for other users' vault IDs.
+		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
 		return
 	}
 
@@ -397,7 +403,10 @@ func (h *VaultHandler) getAllocations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if v.UserID.String() != user.ID {
-		response.WriteJSON(w, http.StatusForbidden, response.Err(http.StatusForbidden, "FORBIDDEN", "forbidden"))
+		// 404, not 403: a non-owner must not be able to tell an existing
+		// vault from one that was never there. Answering 403 here turns the
+		// endpoint into an existence oracle for other users' vault IDs.
+		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
 		return
 	}
 
@@ -492,7 +501,10 @@ func (h *VaultHandler) emergencyWithdraw(w http.ResponseWriter, r *http.Request)
 	}
 
 	if existing.UserID.String() != authUser.ID {
-		response.WriteJSON(w, http.StatusForbidden, response.Err(http.StatusForbidden, "FORBIDDEN", "forbidden"))
+		// 404, not 403: a non-owner must not be able to tell an existing
+		// vault from one that was never there. Answering 403 here turns the
+		// endpoint into an existence oracle for other users' vault IDs.
+		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
 		return
 	}
 
@@ -537,18 +549,18 @@ func (h *VaultHandler) rebalancePosition(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := validateCurrencyCode(req.Currency); err != nil {
-		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("invalid currency: " + err.Error()))
+		response.WriteJSON(w, http.StatusBadRequest, response.ValidationErr("invalid currency: "+err.Error()))
 		return
 	}
 
 	result, err := h.service.RebalancePosition(r.Context(), service.RebalancePositionInput{
-		VaultID:     vaultID,
-		UserID:      userID,
+		VaultID:      vaultID,
+		UserID:       userID,
 		FromProtocol: req.FromProtocol,
 		ToProtocol:   req.ToProtocol,
-		Amount:      amount,
-		Currency:    req.Currency,
-		TxHash:      "",
+		Amount:       amount,
+		Currency:     req.Currency,
+		TxHash:       "",
 	})
 	if err != nil {
 		h.writeDomainError(w, r, err)
@@ -556,13 +568,13 @@ func (h *VaultHandler) rebalancePosition(w http.ResponseWriter, r *http.Request)
 	}
 
 	type rebalanceResponse struct {
-		Vault              vault.Vault          `json:"vault"`
-		FromProtocolBalance decimal.Decimal      `json:"from_protocol_balance"`
-		ToProtocolBalance   decimal.Decimal      `json:"to_protocol_balance"`
+		Vault               vault.Vault     `json:"vault"`
+		FromProtocolBalance decimal.Decimal `json:"from_protocol_balance"`
+		ToProtocolBalance   decimal.Decimal `json:"to_protocol_balance"`
 	}
 
 	response.WriteJSON(w, http.StatusOK, response.OK(rebalanceResponse{
-		Vault:              result.Vault,
+		Vault:               result.Vault,
 		FromProtocolBalance: result.FromProtocolBalance,
 		ToProtocolBalance:   result.ToProtocolBalance,
 	}))
@@ -652,7 +664,10 @@ func (h *VaultHandler) depositToVault(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if vaultModel.UserID.String() != user.ID {
-		response.WriteJSON(w, http.StatusForbidden, response.Err(http.StatusForbidden, "FORBIDDEN", "forbidden"))
+		// 404, not 403: a non-owner must not be able to tell an existing
+		// vault from one that was never there. Answering 403 here turns the
+		// endpoint into an existence oracle for other users' vault IDs.
+		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
 		return
 	}
 
@@ -717,7 +732,10 @@ func (h *VaultHandler) withdrawFromVault(w http.ResponseWriter, r *http.Request)
 	}
 
 	if vault.UserID.String() != user.ID {
-		response.WriteJSON(w, http.StatusForbidden, response.Err(http.StatusForbidden, "FORBIDDEN", "forbidden"))
+		// 404, not 403: a non-owner must not be able to tell an existing
+		// vault from one that was never there. Answering 403 here turns the
+		// endpoint into an existence oracle for other users' vault IDs.
+		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
 		return
 	}
 
@@ -743,7 +761,10 @@ func (h *VaultHandler) writeDomainError(w http.ResponseWriter, r *http.Request, 
 	case errors.Is(err, vault.ErrVaultNotFound):
 		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
 	case errors.Is(err, vault.ErrVaultForbidden):
-		response.WriteJSON(w, http.StatusForbidden, response.Err(http.StatusForbidden, "FORBIDDEN", "forbidden"))
+		// 404, not 403: a non-owner must not be able to tell an existing
+		// vault from one that was never there. Answering 403 here turns the
+		// endpoint into an existence oracle for other users' vault IDs.
+		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
 	case errors.Is(err, vault.ErrUserNotFound):
 		response.WriteJSON(w, http.StatusNotFound, response.NotFound("user"))
 	case errors.Is(err, vault.ErrInvalidVault), errors.Is(err, vault.ErrInvalidAmount), errors.Is(err, vault.ErrInvalidAllocation), errors.Is(err, vault.ErrInvalidHarvestFrequency):

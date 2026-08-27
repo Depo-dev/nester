@@ -15,7 +15,7 @@ import (
 	"github.com/suncrestlabs/nester/apps/api/internal/service"
 )
 
-func TestGetVaultIDORReturns403ForOtherUser(t *testing.T) {
+func TestGetVaultIDORReturns404ForOtherUser(t *testing.T) {
 	ownerID := uuid.New()
 	otherID := uuid.New()
 	repository := newHandlerRepository(ownerID, otherID)
@@ -49,8 +49,10 @@ func TestGetVaultIDORReturns403ForOtherUser(t *testing.T) {
 	}
 	defer getResp.Body.Close()
 
-	if getResp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403 for cross-user vault access, got %d", getResp.StatusCode)
+	// 404 rather than 403: the response must not reveal that this vault
+	// exists. See #1101 — a 403 here is an existence oracle.
+	if getResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for cross-user vault access, got %d", getResp.StatusCode)
 	}
 }
 
@@ -84,7 +86,7 @@ func TestGetVaultReturns200ForOwner(t *testing.T) {
 	}
 }
 
-func TestGetAllocationsIDORReturns403ForOtherUser(t *testing.T) {
+func TestGetAllocationsIDORReturns404ForOtherUser(t *testing.T) {
 	ownerID := uuid.New()
 	otherID := uuid.New()
 	repository := newHandlerRepository(ownerID, otherID)
@@ -113,7 +115,7 @@ func TestGetAllocationsIDORReturns403ForOtherUser(t *testing.T) {
 	}
 	defer getResp.Body.Close()
 
-	if getResp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected 403 for cross-user allocations access, got %d", getResp.StatusCode)
+	if getResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for cross-user allocations access, got %d", getResp.StatusCode)
 	}
 }

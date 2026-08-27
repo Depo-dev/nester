@@ -580,7 +580,11 @@ func (s *SavingsGoalService) validateGoalVault(ctx context.Context, userID, vaul
 	v, err := s.vaultRepo.GetVault(ctx, vaultID)
 	if err != nil {
 		if errors.Is(err, vault.ErrVaultNotFound) {
-			return fmt.Errorf("%w: vault not found", savingsgoal.ErrInvalidGoal)
+			// Same error as a vault owned by someone else, so the two cases
+			// are indistinguishable to the caller (#1101). Reporting "not
+			// found" here and "unauthorized" below would let a caller probe
+			// which vault IDs exist.
+			return savingsgoal.ErrUnauthorized
 		}
 		return err
 	}
