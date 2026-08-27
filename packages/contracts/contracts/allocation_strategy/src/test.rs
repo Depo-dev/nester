@@ -567,6 +567,16 @@ fn privileged_strategy_calls_require_signatures() {
     assert!(client
         .try_set_allocations(&operator, &1_000_i128, &apys)
         .is_err());
+
+    // Issue #1132: propose_upgrade/cancel_upgrade previously called
+    // AccessControl::require_role without a preceding admin.require_auth(),
+    // so a caller with no mocked auth at all could still reach the role
+    // check. With no auths mocked here, both must fail before the role
+    // check even runs.
+    assert!(client
+        .try_propose_upgrade(&admin, &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]), &0u64)
+        .is_err());
+    assert!(client.try_cancel_upgrade(&admin).is_err());
 }
 
 #[test]

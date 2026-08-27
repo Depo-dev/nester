@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { useStellarFeeEstimate } from "@/hooks/useStellarFeeEstimate";
+import { useDepositPreview } from "@/hooks/useDepositPreview";
 import { NetworkFeeDisplay } from "@/components/stellar/NetworkFeeEstimate";
 import { useTokenPrices } from "@/hooks/useTokenPrices";
 import { motion, AnimatePresence } from "framer-motion";
@@ -192,9 +193,19 @@ export function DepositModal({
         open && state === "input" && amount > 0
     );
 
+    // Issue #1129: simulated expected shares via the vault's preview_deposit,
+    // instead of assuming a 1:1 amount-to-shares ratio.
+    const { preview: depositPreview, loading: depositPreviewLoading } = useDepositPreview(
+        depositFeeParams,
+        open && state === "input" && amount > 0
+    );
+
     const canSubmit = !!vault && !!address && isValid && amount > 0;
     const estimatedYield = vault ? amount * vault.apy : 0;
-    const sharesReceived = amount;
+    const sharesReceived =
+        depositPreview?.available && depositPreview.sharesExpected > BigInt(0)
+            ? Number(formatStroopsToDisplay(depositPreview.sharesExpected, 6))
+            : amount;
 
     const reset = () => {
         resetForm();
