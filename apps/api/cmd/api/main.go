@@ -477,6 +477,17 @@ func run() error {
 	// Issue #1141: support tooling to inspect a user's money-path state.
 	adminHandler.SetMoneyPathServices(portfolioService, transactionService, auditLogger)
 
+	// Global pause switch for the money path (#1120). Gates deposits and
+	// withdrawals independently, persisted so an engaged switch survives a
+	// restart, and audit-logged on every change.
+	//
+	// Attached to vaultService rather than passed through its constructor so
+	// the many services built for tests and tooling keep working unchanged:
+	// a service with no gate allows everything, exactly as before.
+	moneyPathSwitchService := service.NewMoneyPathSwitchService(
+		postgres.NewMoneyPathSwitchRepository(db), auditLogger)
+	vaultService.SetMoneyPathSwitches(moneyPathSwitchService)
+
 	activityEventRepo := postgres.NewActivityEventRepository(db)
 	nudgeHistoryRepo := postgres.NewNudgeHistoryRepository(db)
 	nudgeOutcomeService := service.NewNudgeOutcomeService(nudgeHistoryRepo)
@@ -785,6 +796,7 @@ func run() error {
 	userHandler.Register(mux)
 	notificationHandler.Register(mux)
 	adminHandler.Register(mux)
+	handler.NewMoneyPathSwitchHandler(moneyPathSwitchService).Register(mux)
 	authHandler.Register(mux)
 	rateHandler.Register(mux)
 	performanceHandler.Register(mux)
