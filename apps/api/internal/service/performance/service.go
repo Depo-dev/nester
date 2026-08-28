@@ -217,7 +217,16 @@ type BalanceProvider interface {
 	VaultBalance(ctx context.Context, contractAddress string) (decimal.Decimal, error)
 }
 
-// GetUserAnalytics returns aggregated analytics data for a user's vaults
+// GetUserAnalytics returns aggregated analytics data for a user's vaults.
+//
+// The 1000-vault ceiling below is bounded by vault count (how many a user
+// can plausibly create through the product UI), same reasoning as
+// portfolio_service.go's 10,000 ceiling — not by transaction volume that
+// grows with usage, which is what made the pending-deposit ceiling in
+// valuation/adapters.go unsafe (nester#1193). This handler does sum
+// vault.CurrentBalance across the page below into totalBalance for display,
+// so if vault creation ever becomes bulk/programmatic this reasoning stops
+// holding and needs real pagination, same as that fix.
 func (s *Service) GetUserAnalytics(ctx context.Context, userID uuid.UUID, fromTime, toTime time.Time) (*analytics.AnalyticsResponse, error) {
 	// Get user's vaults
 	userVaults, _, err := s.vaultRepo.ListUserVaults(ctx, userID, vault.UserListFilter{Page: 1, PerPage: 1000})
