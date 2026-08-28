@@ -12,9 +12,10 @@ import (
 	"github.com/suncrestlabs/nester/apps/api/internal/testutil"
 )
 
-// seedPath is scripts/seed.sql, relative to this package.
+// seedPath is scripts/seed.sql, relative to this package. Five levels up:
+// postgres -> repository -> internal -> api -> apps -> repo root.
 func seedPath() string {
-	return filepath.Join("..", "..", "..", "..", "scripts", "seed.sql")
+	return filepath.Join("..", "..", "..", "..", "..", "scripts", "seed.sql")
 }
 
 // TestSeedAppliesToAFullyMigratedDatabase is the gate #1122 asks for: apply

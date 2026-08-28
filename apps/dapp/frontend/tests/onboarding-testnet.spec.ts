@@ -14,18 +14,25 @@ import { test, expect, type Page } from '@playwright/test';
  * a faithful exercise of the machine.
  */
 
-const DASHBOARD = '/dashboard';
+// The landing page, not /dashboard: without a connected wallet the dashboard
+// renders nothing, and no wallet is exactly the state a first-time visitor
+// arrives in. The deposit step is picked up on the dashboard once connected.
+const LANDING = '/';
 
-async function gotoDashboard(page: Page) {
-  await page.goto(DASHBOARD);
-  // The panel mounts after the dismissal is read, so wait for the app rather
-  // than for a fixed delay.
+async function gotoOnboarding(page: Page) {
+  await page.goto(LANDING);
   await page.waitForLoadState('domcontentloaded');
+  // The panel mounts after the dismissal is read from storage, so wait for it
+  // to settle rather than for a fixed delay.
+  await page
+    .getByTestId('testnet-onboarding')
+    .waitFor({ state: 'attached', timeout: 15_000 })
+    .catch(() => {});
 }
 
 test.describe('Testnet onboarding stepper', () => {
   test('a first-time visitor is shown the install step', async ({ page }) => {
-    await gotoDashboard(page);
+    await gotoOnboarding(page);
 
     const panel = page.getByTestId('testnet-onboarding');
     await expect(panel).toBeVisible();
@@ -35,7 +42,7 @@ test.describe('Testnet onboarding stepper', () => {
   });
 
   test('the panel stays dismissed across a reload', async ({ page }) => {
-    await gotoDashboard(page);
+    await gotoOnboarding(page);
 
     const panel = page.getByTestId('testnet-onboarding');
     await expect(panel).toBeVisible();
@@ -51,7 +58,7 @@ test.describe('Testnet onboarding stepper', () => {
   });
 
   test('progress is announced for assistive technology', async ({ page }) => {
-    await gotoDashboard(page);
+    await gotoOnboarding(page);
 
     const progressbar = page.getByRole('progressbar', { name: /setup progress/i });
     await expect(progressbar).toBeVisible();
@@ -59,7 +66,7 @@ test.describe('Testnet onboarding stepper', () => {
   });
 
   test('every step is listed so the user can see what is ahead', async ({ page }) => {
-    await gotoDashboard(page);
+    await gotoOnboarding(page);
 
     for (const step of ['install', 'network', 'fund', 'deposit']) {
       await expect(page.getByTestId(`onboarding-step-${step}`)).toBeVisible();
@@ -67,7 +74,7 @@ test.describe('Testnet onboarding stepper', () => {
   });
 
   test('only the active step exposes an action', async ({ page }) => {
-    await gotoDashboard(page);
+    await gotoOnboarding(page);
 
     await expect(page.getByTestId('onboarding-step-install')).toHaveAttribute('data-state', 'active');
     for (const step of ['network', 'fund', 'deposit']) {
