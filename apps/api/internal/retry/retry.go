@@ -289,6 +289,10 @@ func fullJitter(cap time.Duration) time.Duration {
 	if cap <= 0 {
 		return 0
 	}
+	// Backoff jitter only has to be unpredictable enough to keep retrying
+	// clients from synchronising; it guards no secret, and drawing from
+	// crypto/rand on every retry would add a syscall to the failure path.
+	// #nosec G404 -- non-cryptographic use.
 	return time.Duration(rand.Int64N(int64(cap)))
 }
 

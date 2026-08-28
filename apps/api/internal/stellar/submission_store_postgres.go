@@ -201,6 +201,10 @@ func (s *PostgresSubmissionStore) ClaimPendingForReconcile(ctx context.Context, 
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// The only concatenated fragment is prefixColumns, which builds a fixed
+	// column list from a compile-time literal alias; every value is bound
+	// through $1/$2/$3. No caller input reaches the statement text.
+	// #nosec G202 -- column list is a constant, values are parameterised.
 	rows, err := tx.QueryContext(ctx, `
 WITH due AS (
     SELECT id

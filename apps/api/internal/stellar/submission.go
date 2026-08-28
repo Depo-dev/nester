@@ -3,6 +3,7 @@ package stellar
 import (
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/stellar/go/txnbuild"
@@ -272,8 +273,16 @@ func IdentifyTransaction(signedEnvelopeB64, networkPassphrase string) (Transacti
 
 	identity := TransactionIdentity{Hash: hash}
 
+	// MaxTime is an unsigned Stellar timepoint. Converting a value above
+	// MaxInt64 straight to int64 wraps it negative, which would read as a
+	// transaction that expired long ago — and expiry is what this package
+	// treats as proof a transaction is dead and safe to replace. Values that
+	// large are not real deadlines, so they are treated as no bound at all
+	// rather than as an expiry in the distant past.
 	if bounds := inner.ToXDR().V1.Tx.Cond.TimeBounds; bounds != nil && bounds.MaxTime > 0 {
-		identity.ValidUntil = time.Unix(int64(bounds.MaxTime), 0).UTC()
+		if maxTime := uint64(bounds.MaxTime); maxTime <= math.MaxInt64 {
+			identity.ValidUntil = time.Unix(int64(maxTime), 0).UTC()
+		}
 	}
 
 	return identity, nil
