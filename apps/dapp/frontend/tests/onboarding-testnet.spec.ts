@@ -22,6 +22,16 @@ const LANDING = '/';
 async function gotoOnboarding(page: Page) {
   await page.goto(LANDING);
   await page.waitForLoadState('domcontentloaded');
+
+  // A clean profile also gets the welcome modal, which is a full-screen
+  // overlay. A real user clears it before they can reach anything underneath,
+  // so the test does the same rather than reaching through it.
+  const skip = page.getByRole('button', { name: /^skip$/i });
+  if (await skip.isVisible().catch(() => false)) {
+    await skip.click();
+    await skip.waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
+  }
+
   // The panel mounts after the dismissal is read from storage, so wait for it
   // to settle rather than for a fixed delay.
   await page
