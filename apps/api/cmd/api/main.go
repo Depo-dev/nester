@@ -546,7 +546,7 @@ func run() error {
 		Goals:     valuation.NewGoalAllocationSource(postgres.NewSavingsGoalRepository(db)),
 		Oracle:    valuation.NewStaticOracle(nil),
 		Cache:     valuation.NewCache(30 * time.Second),
-		Notifier:  valuation.NewWSNotifier(wsHub),
+		Notifier:  valuation.NewWSNotifier(wsHub, baseLogger.WithGroup("valuation")),
 		Logger:    baseLogger.WithGroup("valuation"),
 	})
 	valuationHandler := handler.NewValuationHandler(valuationService)

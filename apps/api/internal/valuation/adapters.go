@@ -2,6 +2,8 @@ package valuation
 
 import (
 	"context"
+	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -11,6 +13,12 @@ import (
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/transaction"
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/vault"
 )
+
+// wsPushTimeout bounds the WebSocket push in WSNotifier.PushValuation. It is
+// called with a background context (the request that triggered the
+// recompute has typically already returned), so without a bound a stalled
+// hub could hang the call indefinitely (nester#1198).
+const wsPushTimeout = 10 * time.Second
 
 // VaultLister is the subset of the vault repository the position source needs.
 type VaultLister interface {
@@ -123,7 +131,8 @@ func (s *GoalAllocationSource) Goals(ctx context.Context, userID uuid.UUID) ([]G
 
 // WSNotifier pushes valuations to a user's WebSocket channel.
 type WSNotifier struct {
-	hub UserPusher
+	hub    UserPusher
+	logger *slog.Logger
 }
 
 // UserPusher is the WebSocket hub method used to push to a single user.
@@ -131,12 +140,22 @@ type UserPusher interface {
 	PushToUser(ctx context.Context, userID uuid.UUID, eventName string, payload any) error
 }
 
-// NewWSNotifier constructs a WSNotifier.
-func NewWSNotifier(hub UserPusher) *WSNotifier { return &WSNotifier{hub: hub} }
+// NewWSNotifier constructs a WSNotifier. A nil logger discards push failures
+// (matching Service's own nil-Logger fallback in NewService).
+func NewWSNotifier(hub UserPusher, logger *slog.Logger) *WSNotifier {
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(discardWriter{}, &slog.HandlerOptions{Level: slog.LevelError}))
+	}
+	return &WSNotifier{hub: hub, logger: logger}
+}
 
 // PushValuation implements Notifier by pushing a portfolio_valuation event.
 func (n *WSNotifier) PushValuation(userID uuid.UUID, val portfolio.Valuation) {
-	_ = n.hub.PushToUser(context.Background(), userID, "portfolio_valuation", val)
+	ctx, cancel := context.WithTimeout(context.Background(), wsPushTimeout)
+	defer cancel()
+	if err := n.hub.PushToUser(ctx, userID, "portfolio_valuation", val); err != nil {
+		n.logger.Error("valuation: websocket push failed", "user_id", userID, "error", err)
+	}
 }
 
 var _ Notifier = (*WSNotifier)(nil)
