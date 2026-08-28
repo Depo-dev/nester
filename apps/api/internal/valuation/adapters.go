@@ -39,6 +39,13 @@ func NewVaultPositionSource(vaults VaultLister) *VaultPositionSource {
 }
 
 // Positions implements PositionSource.
+//
+// The 10,000-vault ceiling is safe here for the same reason as
+// portfolio_service.go's identical one (nester#1193): it's bounded by vault
+// count, which a user can only grow through the product UI, not by
+// transaction volume that grows with usage over time — unlike
+// TxPendingSource.PendingDeposits below, which paginates through every row
+// for exactly that reason.
 func (s *VaultPositionSource) Positions(ctx context.Context, userID uuid.UUID) ([]Position, error) {
 	vaults, _, err := s.vaults.ListUserVaults(ctx, userID, vault.UserListFilter{Page: 1, PerPage: 10000})
 	if err != nil {
@@ -77,20 +84,44 @@ func NewTxPendingSource(txs TxLister) *TxPendingSource {
 	return &TxPendingSource{txs: txs}
 }
 
-// PendingDeposits implements PendingSource.
+// pendingDepositsPageSize is the page size PendingDeposits fetches at a time.
+// It exists to bound single-query memory/row cost, not to cap how many
+// pending deposits a user can have — PendingDeposits pages through every
+// row ListUserTransactions reports via its total count (nester#1193: this
+// feeds a user's valuation, so silently dropping rows past a fixed limit
+// would undercount real money, not just paginate badly).
+const pendingDepositsPageSize = 500
+
+// PendingDeposits implements PendingSource. It sums every pending deposit
+// for the user — see pendingDepositsPageSize's comment for why this must
+// page through all of them rather than truncating at a fixed row count.
 func (s *TxPendingSource) PendingDeposits(ctx context.Context, userID uuid.UUID) ([]AssetAmount, error) {
-	txs, _, err := s.txs.ListUserTransactions(ctx, transaction.ListFilter{
-		UserID: userID,
-		Type:   string(transaction.TypeDeposit),
-		Status: string(transaction.StatusPending),
-		Limit:  10000,
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]AssetAmount, 0, len(txs))
-	for _, t := range txs {
-		out = append(out, AssetAmount{Asset: t.Currency, Amount: t.Amount})
+	var out []AssetAmount
+	offset := 0
+	for {
+		txs, total, err := s.txs.ListUserTransactions(ctx, transaction.ListFilter{
+			UserID: userID,
+			Type:   string(transaction.TypeDeposit),
+			Status: string(transaction.StatusPending),
+			Limit:  pendingDepositsPageSize,
+			Offset: offset,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if out == nil {
+			out = make([]AssetAmount, 0, total)
+		}
+		for _, t := range txs {
+			out = append(out, AssetAmount{Asset: t.Currency, Amount: t.Amount})
+		}
+		offset += len(txs)
+		// len(txs) == 0 guards against an implementation whose total count
+		// disagrees with what it actually returns, so a mismatch can never
+		// spin this loop forever.
+		if offset >= total || len(txs) == 0 {
+			break
+		}
 	}
 	return out, nil
 }
