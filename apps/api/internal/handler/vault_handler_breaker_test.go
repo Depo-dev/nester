@@ -122,8 +122,8 @@ func TestRetryAfterSeconds(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := retryAfterSeconds(tc.err); got != tc.want {
-				t.Fatalf("retryAfterSeconds() = %q, want %q", got, tc.want)
+			if got := upstreamRetryAfterSeconds(tc.err); got != tc.want {
+				t.Fatalf("upstreamRetryAfterSeconds() = %q, want %q", got, tc.want)
 			}
 		})
 	}

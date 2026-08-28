@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,9 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/suncrestlabs/nester/apps/api/internal/auth"
-	"github.com/suncrestlabs/nester/apps/api/internal/breaker"
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/vault"
-	"github.com/suncrestlabs/nester/apps/api/internal/retry"
 	"github.com/suncrestlabs/nester/apps/api/internal/service"
 	"github.com/suncrestlabs/nester/apps/api/internal/ws"
 	"github.com/suncrestlabs/nester/apps/api/pkg/listquery"
@@ -793,13 +790,8 @@ func (h *VaultHandler) writeDomainError(w http.ResponseWriter, r *http.Request, 
 	// for its whole open period, and a log line each would turn an upstream
 	// outage into a logging outage; the breaker's rejection counter and the
 	// RPC exhaustion counter carry that volume instead.
-	case errors.Is(err, breaker.ErrOpen), errors.Is(err, retry.ErrExhausted):
-		w.Header().Set("Retry-After", retryAfterSeconds(err))
-		response.WriteJSON(w, http.StatusServiceUnavailable, response.Err(
-			http.StatusServiceUnavailable,
-			"UPSTREAM_UNAVAILABLE",
-			"the Stellar network is temporarily unreachable; please retry shortly",
-		))
+	case isUpstreamUnavailable(err):
+		writeUpstreamUnavailable(w, err)
 
 	default:
 		logpkg.FromContext(r.Context()).Error("vault handler failed", "error", err.Error())
@@ -811,16 +803,6 @@ func (h *VaultHandler) writeDomainError(w http.ResponseWriter, r *http.Request, 
 // Retry-After value, so a client backs off for as long as the shedding will
 // actually last instead of guessing. Falls back to "1" when the breaker did
 // not carry a duration, which is still better than no hint at all.
-func retryAfterSeconds(err error) string {
-	var openErr *breaker.OpenError
-	if errors.As(err, &openErr) {
-		if seconds := int(math.Ceil(openErr.RetryIn.Seconds())); seconds > 0 {
-			return strconv.Itoa(seconds)
-		}
-	}
-	return "1"
-}
-
 func decodeJSON(r *http.Request, destination any) error {
 	decoder := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodyBytes))
 	decoder.DisallowUnknownFields()
