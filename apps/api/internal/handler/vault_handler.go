@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/suncrestlabs/nester/apps/api/internal/auth"
+	"github.com/suncrestlabs/nester/apps/api/internal/domain/moneypath"
 	"github.com/suncrestlabs/nester/apps/api/internal/domain/vault"
 	"github.com/suncrestlabs/nester/apps/api/internal/service"
 	"github.com/suncrestlabs/nester/apps/api/internal/ws"
@@ -758,6 +759,14 @@ func (h *VaultHandler) withdrawFromVault(w http.ResponseWriter, r *http.Request)
 
 func (h *VaultHandler) writeDomainError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	// The global pause switch (#1120). 503 with the operator's own reason,
+	// so the UI can say what is happening and why rather than showing a
+	// generic failure. Retry-After is deliberately absent: unlike an upstream
+	// blip, a pause is released by a person, and inviting a client to retry
+	// in a second would just add load to a system already in an incident.
+	case errors.Is(err, moneypath.ErrPaused):
+		response.WriteJSON(w, http.StatusServiceUnavailable, response.Err(
+			http.StatusServiceUnavailable, "MONEY_PATH_PAUSED", err.Error()))
 	case errors.Is(err, vault.ErrVaultNotFound):
 		response.WriteJSON(w, http.StatusNotFound, response.NotFound("vault"))
 	case errors.Is(err, vault.ErrVaultForbidden):
