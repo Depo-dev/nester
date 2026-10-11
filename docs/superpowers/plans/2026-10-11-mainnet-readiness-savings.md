@@ -154,11 +154,13 @@ read -r -p "Type DEPLOY MAINNET to continue: " ok; [ "$ok" = "DEPLOY MAINNET" ] 
 **Interfaces:**
 - Produces: config validation returning an error (process exits) when `STELLAR_NETWORK` and passphrase/Horizon/RPC URLs disagree.
 
-- [ ] **Step 1: Write the failing test:** table test with cases (mainnet+testnet passphrase, mainnet+testnet Horizon, testnet+mainnet RPC) each expecting a non-nil validation error, and the two consistent cases expecting nil.
-- [ ] **Step 2:** `cd apps/api && go test ./internal/config -run TestNetworkConsistency -v` → FAIL.
-- [ ] **Step 3:** Implement the check in config load (mainnet passphrase literal from Global Constraints; reject any URL containing `testnet`).
-- [ ] **Step 4:** Test passes; add `.env.mainnet.example` with mainnet values, `AUTO_MIGRATE=false` (migrations run in the deploy pipeline per the existing note in `.env.example`), real USDC issuer, strict `ALLOWED_ORIGINS`.
-- [ ] **Step 5:** `go vet ./... && go test -short ./...`, commit.
+- [x] **Step 1: Write the failing test:** table test with cases (mainnet+testnet passphrase, mainnet+testnet Horizon, testnet+mainnet RPC) each expecting a non-nil validation error, and the two consistent cases expecting nil.
+- [x] **Step 2:** `cd apps/api && go test ./internal/config -run TestNetworkConsistency -v` → FAIL.
+- [x] **Step 3:** Implement the check in config load (mainnet passphrase literal from Global Constraints; reject any URL containing `testnet`).
+- [x] **Step 4:** Test passes; add `.env.mainnet.example` with mainnet values, `AUTO_MIGRATE=false` (migrations run in the deploy pipeline per the existing note in `.env.example`), real USDC issuer, strict `ALLOWED_ORIGINS`.
+- [x] **Step 5:** `go vet ./... && go test -short ./...`, commit.
+
+> **Status (2026-10-12):** DONE. Dev already rejected network/URL mismatches and missing registry/allocation addresses on mainnet. Added the missing piece: mainnet now also refuses to start unless `STELLAR_MAINNET_VAULT_TVL_CAP` is positive (unset/0 previously meant "no cap"). Added `apps/api/.env.mainnet.example`. Plan's `AUTO_MIGRATE` is `RUN_MIGRATIONS` in this codebase.
 
 ### Task 8: Indexer behaviour on mainnet RPC
 
