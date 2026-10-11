@@ -44,10 +44,18 @@ for needle in \
   "set_tvl_cap" \
   "set_deposit_allowlist_enabled" \
   "transfer_admin" \
-  "--new_admin $ADMIN"   '--config {"vault_usdc":"C_DRYRUN_Vault_USDC"'   "invoke C_DRYRUN_Treasury -- transfer_admin"; do
+  "--new_admin $ADMIN" \
+  '--config {"vault_usdc":"C_DRYRUN_Vault_USDC"' \
+  "invoke C_DRYRUN_Treasury -- transfer_admin" \
+  "NEXT_PUBLIC_VAULT_CONTRACT_ID=C_DRYRUN_Vault_USDC" \
+  "NEXT_PUBLIC_VAULT_XLM_CONTRACT_ID=C_DRYRUN_Vault_XLM" \
+  "NEXT_PUBLIC_VAULT_TOKEN_CONTRACT_ID=C_DRYRUN_VaultToken_USDC" \
+  "NEXT_PUBLIC_USDC_CONTRACT_ID=$USDC" \
+  "NEXT_PUBLIC_ADMIN_ADDRESS=$ADMIN"; do
   grep -qF -- "$needle" <<<"$out" && echo "ok:   dry run contains: $needle" \
     || { echo "FAIL: dry run missing: $needle"; fail=1; }
 done
+grep -q "NEXT_PUBLIC_MAINNET_" <<<"$out" && { echo "FAIL: env uses non-canonical NEXT_PUBLIC_MAINNET_* names the dapp does not read"; fail=1; } || echo "ok:   env uses the canonical names the dapp reads"
 grep -qE "testnet|friendbot" <<<"$out" && { echo "FAIL: dry run mentions testnet/friendbot"; fail=1; } || echo "ok:   dry run never touches testnet"
 
 exit "$fail"
