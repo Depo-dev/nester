@@ -25,7 +25,7 @@ check() {
 }
 
 check "rejects a secret key argument" 1 "key alias" \
-  "${BASE_ENV[@]}" ADMIN_ADDRESS="$ADMIN" bash "$SCRIPT" SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  "${BASE_ENV[@]}" ADMIN_ADDRESS="$ADMIN" bash "$SCRIPT" SNOT-A-REAL-KEY
 check "requires ADMIN_ADDRESS" 1 "ADMIN_ADDRESS" \
   "${BASE_ENV[@]}" ADMIN_ADDRESS= DRY_RUN=1
 check "refuses admin equal to deployer" 1 "admin must differ from deployer" \
