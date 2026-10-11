@@ -182,13 +182,15 @@ read -r -p "Type DEPLOY MAINNET to continue: " ok; [ "$ok" = "DEPLOY MAINNET" ] 
 - Modify: `apps/api/internal/signing/policy_test.go`
 
 - [ ] **Step 1:** Generate mainnet signer and JWT/cipher keys in the secret manager, not the repo; confirm `scripts/contract-audit.sh` secret scan passes.
-- [ ] **Step 2:** Add a policy test: with network = mainnet the signer rejects intents above the per-tx limit and to non-allowlisted contract IDs (the mainnet vault/treasury IDs from Task 2).
+- [x] **Step 2:** Add a policy test: with network = mainnet the signer rejects intents above the per-tx limit and to non-allowlisted contract IDs (the mainnet vault/treasury IDs from Task 2).
 - [ ] **Step 3:** Rehearse rotation using `cmd/rotate_keys` on staging; record elapsed time.
-- [ ] **Step 4:** Commit and update the register.
+- [x] **Step 4:** Commit and update the register.
 
 ---
 
 ## Phase D: Dapp
+
+> **Status (2026-10-12):** Code side DONE with no change needed: `internal/signing/policy_test.go` already pins wrong-network, contract-allowlist, excessive-amount and replay rejection (signing suite passes). Steps 1 and 3 (generate mainnet keys in the secret manager, rehearse `cmd/rotate_keys`) are operator actions and remain unchecked. The repo secret pattern scan finds no secret-shaped strings outside tests. Also found `scripts/mainnet-deploy-dryrun.sh` (local-network rehearsal of deploy + multisig handover); reuse it for the Task 14 rehearsal.
 
 ### Task 10: Fail closed on mainnet placeholders
 
