@@ -168,10 +168,12 @@ read -r -p "Type DEPLOY MAINNET to continue: " ok; [ "$ok" = "DEPLOY MAINNET" ] 
 - Modify: `apps/api/internal/stellar/poller.go`
 - Test: `apps/api/internal/stellar/poller_test.go`
 
-- [ ] **Step 1: Write the failing test:** persisted cursor is older than the RPC's oldest available ledger. Expected: poller does not skip silently; it logs an error, increments a gap metric and halts advancing (or triggers the backfill command) rather than jumping to tip.
-- [ ] **Step 2:** Run → FAIL. **Step 3:** implement using the RPC's reported oldest ledger; wire the existing `cmd/backfill` as the recovery path and document in the runbook.
+- [x] **Step 1: Write the failing test:** persisted cursor is older than the RPC's oldest available ledger. Expected: poller does not skip silently; it logs an error, increments a gap metric and halts advancing (or triggers the backfill command) rather than jumping to tip.
+- [x] **Step 2:** Run → FAIL. **Step 3:** implement using the RPC's reported oldest ledger; wire the existing `cmd/backfill` as the recovery path and document in the runbook.
 - [ ] **Step 4:** Soak: run the indexer against mainnet RPC read-only for 24h on staging; confirm cursor advances and `processed_events` has no duplicates.
-- [ ] **Step 5:** Add an alert (Prometheus rule in `deploy/observability`) for cursor lag > N ledgers. Commit.
+- [x] **Step 5:** Add an alert (Prometheus rule in `deploy/observability`) for cursor lag > N ledgers. Commit.
+
+> **Status (2026-10-12):** Steps 1-3 and 5 DONE; Step 4 (24h mainnet-RPC soak) is a staging/ops action, not code. Findings: the poller already never skips (it returns early on a fetch error and leaves the cursor alone), so the real gap was a generic repeating error. Added typed `CursorBehindRetentionError` (tests: `retention_gap_test.go`), plus runbook Cause D. Lag alerts (`IndexerLagHigh`/`IndexerLagStale`) already exist in `docker/prometheus/rules/slo_alerts.yml`, so no new rule.
 
 ### Task 9: Signer keys and secrets for mainnet
 
