@@ -201,7 +201,7 @@ read -r -p "Type DEPLOY MAINNET to continue: " ok; [ "$ok" = "DEPLOY MAINNET" ] 
 **Interfaces:**
 - Produces: `assertNetworkConfigured(id: 'testnet' | 'mainnet'): void` throwing when any contract ID contains `PLACEHOLDER`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 import { assertNetworkConfigured } from "./networks";
@@ -213,10 +213,12 @@ it("does not throw for testnet", () => {
 });
 ```
 
-- [ ] **Step 2:** `cd apps/dapp/frontend && npx vitest run lib/networks.test.ts` → FAIL (function missing).
-- [ ] **Step 3:** Implement: iterate `NETWORKS[id].contracts` values, throw if any includes `PLACEHOLDER`.
-- [ ] **Step 4:** Call it before building any transaction in `lib/stellar/transaction.ts` and in `NetworkProvider` when mainnet is selected; show an honest banner ("Mainnet is not available yet") instead of a broken flow. Add a test that selecting mainnet with placeholders disables Deposit.
-- [ ] **Step 5:** Tests pass, commit.
+- [x] **Step 2:** `cd apps/dapp/frontend && npx vitest run lib/networks.test.ts` → FAIL (function missing).
+- [x] **Step 3:** Implement: iterate `NETWORKS[id].contracts` values, throw if any includes `PLACEHOLDER`.
+- [x] **Step 4:** Call it before building any transaction in `lib/stellar/transaction.ts` and in `NetworkProvider` when mainnet is selected; show an honest banner ("Mainnet is not available yet") instead of a broken flow. Add a test that selecting mainnet with placeholders disables Deposit.
+- [x] **Step 5:** Tests pass, commit.
+
+> **Status (2026-10-12):** DONE with a changed design. `lib/networks.ts` `contracts` (the `C_MAINNET_*_PLACEHOLDER` table) is dead config: nothing reads it. Real contract ids are one env set per build (`lib/contracts.ts`) and the Network selector only changes the passphrase, so the actual hazard is selecting a network the build is not deployed for. Added `lib/stellar/network-guard.ts` (`assertNetworkMatchesBuild`, `NetworkNotAvailableError`) and `getTransactionNetwork()`, now used by every transaction builder (deposit, withdraw, preview, vault factory). Tests: `__tests__/network-guard.test.ts` 6/6; builder test verified RED without the wiring. UI messaging for the error is Task 11.
 
 ### Task 11: Mainnet-facing UX gaps
 
