@@ -472,6 +472,7 @@ enum DataKey {
     DepositAllowlistEnabled,
     DepositAllowlisted(Address),
     BreakerConfigV2,
+    TvlCap,
     // Multi-asset vault support (#804)
     BasketAssets,         // Vec<AssetConfig> for multi-asset vaults
     IsMultiAsset,         // bool flag indicating if vault is multi-asset
@@ -2323,6 +2324,38 @@ impl VaultContract {
         );
     }
 
+    /// Cap on total vault assets. Unlike `set_max_deposit`, which bounds one
+    /// deposit, this bounds total exposure, so repeated deposits cannot get
+    /// past it. Lowering it below current assets only blocks new deposits;
+    /// withdrawals are unaffected.
+    pub fn set_tvl_cap(env: Env, caller: Address, amount: i128) {
+        caller.require_auth();
+        AccessControl::require_role(&env, &caller, Role::Admin);
+        if amount <= 0 {
+            panic_with_error!(&env, ContractError::ConfigOutOfRange);
+        }
+        let old_value = Self::get_tvl_cap(env.clone());
+        env.storage().instance().set(&DataKey::TvlCap, &amount);
+        emit_event(
+            &env,
+            VAULT,
+            CAP_CHG,
+            caller,
+            CapChangedEventData {
+                field: symbol_short!("TVL_CAP"),
+                old_value,
+                new_value: amount,
+            },
+        );
+    }
+
+    pub fn get_tvl_cap(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::TvlCap)
+            .unwrap_or(i128::MAX)
+    }
+
     /// Enable or disable the mainnet deposit allowlist gate.
     ///
     /// The gate is disabled by default for backwards compatibility. When it is
@@ -3823,6 +3856,14 @@ impl VaultContract {
             .get(&DataKey::MaxDeposit)
             .unwrap_or(i128::MAX);
         if amount > max_deposit {
+            panic_with_error!(&env, ContractError::ExceedsLimit);
+        }
+
+        let tvl_cap = Self::get_tvl_cap(env.clone());
+        if get_total_assets(&env)
+            .checked_add(amount)
+            .map_or(true, |total| total > tvl_cap)
+        {
             panic_with_error!(&env, ContractError::ExceedsLimit);
         }
 

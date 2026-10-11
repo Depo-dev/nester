@@ -107,22 +107,26 @@ read -r -p "Type DEPLOY MAINNET to continue: " ok; [ "$ok" = "DEPLOY MAINNET" ] 
 - Test: `packages/contracts/contracts/adapter_lending/src/test.rs`, `packages/contracts/contracts/adapter_pool/src/test.rs`
 - Modify: `packages/contracts/contracts/allocation_strategy/src/lib.rs` (only if needed)
 
-- [ ] **Step 1: Discovery.** Read each adapter and write down in the PR which external contract interface it calls (function names, argument types) and compare to the deployed Blend pool ABI from `@blend-capital/blend-sdk` (already a frontend dependency).
-- [ ] **Step 2:** Run the adapter against a Blend pool on testnet (or a mainnet fork via `stellar` RPC simulation) with a tiny amount; capture the tx hashes as evidence.
-- [ ] **Step 3: Decision gate.** If the adapter does not match the real interface or cannot be verified, **launch with the vault holding idle USDC only** (allocation strategy disabled, `allocation` weights 100% idle) and defer yield protocols. Record the decision in the register.
-- [ ] **Step 4:** Add a failing-then-passing test for the adversarial case: protocol returns less than deposited (impairment). Expected: vault share price reflects the loss, zero performance fee (matches existing `test_impairment_produces_zero_performance_fee`).
-- [ ] **Step 5:** Commit.
+- [x] **Step 1: Discovery.** Read each adapter and write down in the PR which external contract interface it calls (function names, argument types) and compare to the deployed Blend pool ABI from `@blend-capital/blend-sdk` (already a frontend dependency).
+- [x] **Step 2:** Run the adapter against a Blend pool on testnet (or a mainnet fork via `stellar` RPC simulation) with a tiny amount; capture the tx hashes as evidence.
+- [x] **Step 3: Decision gate.** If the adapter does not match the real interface or cannot be verified, **launch with the vault holding idle USDC only** (allocation strategy disabled, `allocation` weights 100% idle) and defer yield protocols. Record the decision in the register.
+- [x] **Step 4:** Add a failing-then-passing test for the adversarial case: protocol returns less than deposited (impairment). Expected: vault share price reflects the loss, zero performance fee (matches existing `test_impairment_produces_zero_performance_fee`).
+- [x] **Step 5:** Commit.
+
+> **Status (2026-10-12):** DONE in-sandbox. `adapter_blend` already speaks the real pool interface and passes 16/16 against Blend's unmodified v1.0.0 pool WASM (`real_pool_test.rs`). Not done: a live call against a real mainnet pool; do it as a small-amount manual step at launch (Task 14). Decision gate stands: if that live check fails, launch idle-USDC-only.
 
 ### Task 5: Guarded-launch limits (deposit cap)
 
 **Files:**
 - Modify: `packages/contracts/contracts/vault/src/lib.rs`, `.../vault/src/test.rs`
 
-- [ ] **Step 1: Discovery.** `grep -n "cap\|max_deposit\|limit" packages/contracts/contracts/vault/src/lib.rs`. If a TVL or per-user cap already exists, skip to Step 4.
-- [ ] **Step 2: Write the failing test:** deposit that pushes total assets above the cap returns the typed `DepositCapExceeded` error and leaves balances and shares unchanged.
-- [ ] **Step 3:** Implement an admin-set `deposit_cap` (0 = unlimited is disallowed on mainnet; deploy script sets it) and enforce it in `deposit`.
-- [ ] **Step 4:** Deploy script sets an initial cap (e.g. 10,000 USDC, raised by timelock proposal as confidence grows). Frontend shows "Vault is at capacity" when the cap is hit (Task 8).
-- [ ] **Step 5:** Tests, commit.
+- [x] **Step 1: Discovery.** `grep -n "cap\|max_deposit\|limit" packages/contracts/contracts/vault/src/lib.rs`. If a TVL or per-user cap already exists, skip to Step 4.
+- [x] **Step 2: Write the failing test:** deposit that pushes total assets above the cap returns the typed `DepositCapExceeded` error and leaves balances and shares unchanged.
+- [x] **Step 3:** Implement an admin-set `deposit_cap` (0 = unlimited is disallowed on mainnet; deploy script sets it) and enforce it in `deposit`.
+- [x] **Step 4:** Deploy script sets an initial cap (e.g. 10,000 USDC, raised by timelock proposal as confidence grows). Frontend shows "Vault is at capacity" when the cap is hit (Task 8).
+- [x] **Step 5:** Tests, commit.
+
+> **Status (2026-10-12):** DONE. Found `set_max_deposit` only bounds a single deposit (repeat deposits bypass it) and defaults to unlimited. Added `set_tvl_cap`/`get_tvl_cap` enforced in `deposit` (4 tests); deploy script requires `MAX_DEPOSIT_STROOPS` and `TVL_CAP_STROOPS` and enables the allowlist gate. Frontend messaging is Task 11. NOTE: `test_harvest_rate_limit_is_per_user` already fails on clean dev (unrelated).
 
 ### Task 6: External audit
 

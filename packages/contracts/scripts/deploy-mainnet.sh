@@ -17,6 +17,8 @@
 #   USDC_CONTRACT        mainnet USDC Stellar Asset Contract id (C...)
 #   XLM_CONTRACT         mainnet native XLM Stellar Asset Contract id (C...)
 #   MAX_DEPOSIT_STROOPS  initial per-deposit cap, in 7-decimal base units
+#   TVL_CAP_STROOPS      initial cap on total vault assets, same units; bounds
+#                        total exposure (MAX_DEPOSIT only bounds one deposit)
 #
 # Optional:
 #   DRY_RUN=1 or --dry-run   print every action, execute nothing, skip the build
@@ -55,6 +57,8 @@ XLM_CONTRACT="${XLM_CONTRACT:-}"
 [[ "$XLM_CONTRACT" == C* ]] || die "XLM_CONTRACT must be the mainnet XLM contract id (C...)."
 MAX_DEPOSIT_STROOPS="${MAX_DEPOSIT_STROOPS:-}"
 [[ "$MAX_DEPOSIT_STROOPS" =~ ^[1-9][0-9]*$ ]] || die "MAX_DEPOSIT_STROOPS must be a positive integer; an unbounded cap is not allowed on mainnet."
+TVL_CAP_STROOPS="${TVL_CAP_STROOPS:-}"
+[[ "$TVL_CAP_STROOPS" =~ ^[1-9][0-9]*$ ]] || die "TVL_CAP_STROOPS must be a positive integer; unbounded total exposure is not allowed on mainnet."
 
 if [ -n "$DRY_RUN" ]; then
   DEPLOYER="${DEPLOYER_ADDRESS:-$(stellar keys address "$DEPLOYER_KEY" 2>/dev/null || true)}"
@@ -69,6 +73,7 @@ echo "Network:     $NETWORK ($NETWORK_PASSPHRASE)"
 echo "Deployer:    $DEPLOYER"
 echo "Admin:       $ADMIN_ADDRESS"
 echo "Max deposit: $MAX_DEPOSIT_STROOPS"
+echo "TVL cap:     $TVL_CAP_STROOPS"
 [ -z "$DRY_RUN" ] || echo "DRY RUN: nothing will be sent to the network."
 
 if [ -z "$DRY_RUN" ]; then
@@ -134,6 +139,7 @@ invoke "$NESTER_ID" initialize --admin "$DEPLOYER" --config "$NESTER_CONFIG"
 echo "Guarded-launch limits"
 for vault in "$VAULT_USDC_ID" "$VAULT_XLM_ID"; do
   invoke "$vault" set_max_deposit --caller "$DEPLOYER" --amount "$MAX_DEPOSIT_STROOPS"
+  invoke "$vault" set_tvl_cap --caller "$DEPLOYER" --amount "$TVL_CAP_STROOPS"
   invoke "$vault" set_deposit_allowlist_enabled --caller "$DEPLOYER" --enabled true
 done
 
