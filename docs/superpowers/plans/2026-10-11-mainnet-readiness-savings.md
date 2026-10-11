@@ -58,7 +58,7 @@ The register is dated 2026-08-27 and is already stale: `preview_withdraw_net`, t
 **Interfaces:**
 - Produces: `deployed-mainnet.env` with the same variable names as `deployed-testnet.env`, plus `NEXT_PUBLIC_MAINNET_*` aliases consumed by `lib/networks.ts` (`NEXT_PUBLIC_MAINNET_VAULT_CONTRACT`, `..._VAULT_TOKEN_CONTRACT`, `..._YIELD_REGISTRY_CONTRACT`, `..._ALLOCATION_STRATEGY_CONTRACT`, `..._TREASURY_CONTRACT`, `..._ACCESS_CONTROL_CONTRACT`).
 
-- [ ] **Step 1: Copy and harden.** Start from `deploy-testnet.sh`. Replace the config block:
+- [x] **Step 1: Copy and harden.** Start from `deploy-testnet.sh`. Replace the config block:
 
 ```bash
 NETWORK="mainnet"
@@ -70,7 +70,7 @@ ADMIN_ADDRESS="${ADMIN_ADDRESS:?set multisig/timelock address, never the deploye
 OUTPUT_FILE="./scripts/deployed-mainnet.env"
 ```
 
-- [ ] **Step 2: Add guards** before any deploy: refuse secret-key argv (alias only), refuse if `ADMIN_ADDRESS` equals the deployer's address, require typing `DEPLOY MAINNET`, and support `--dry-run` that prints every command without executing.
+- [x] **Step 2: Add guards** before any deploy: refuse secret-key argv (alias only), refuse if `ADMIN_ADDRESS` equals the deployer's address, require typing `DEPLOY MAINNET`, and support `--dry-run` that prints every command without executing.
 
 ```bash
 if [ -n "${1:-}" ] && [[ "$1" == S* ]]; then echo "pass a key alias via DEPLOYER_KEY, not a secret"; exit 1; fi
@@ -79,8 +79,10 @@ DEPLOYER_ADDR="$(stellar keys address "$DEPLOYER_KEY")"
 read -r -p "Type DEPLOY MAINNET to continue: " ok; [ "$ok" = "DEPLOY MAINNET" ] || exit 1
 ```
 
-- [ ] **Step 3: Verify the script without spending money.** `bash -n scripts/deploy-mainnet.sh`, `shellcheck scripts/deploy-mainnet.sh`, then `DEPLOYER_KEY=x ADMIN_ADDRESS=G... USDC_CONTRACT=C... bash scripts/deploy-mainnet.sh --dry-run`. Expected: full command list, no network calls, exit 0; and exit 1 when admin equals deployer.
-- [ ] **Step 4:** Commit: `git commit -m "feat(contracts): add guarded mainnet deploy script"`
+- [x] **Step 3: Verify the script without spending money.** `bash -n scripts/deploy-mainnet.sh`, `shellcheck scripts/deploy-mainnet.sh`, then `DEPLOYER_KEY=x ADMIN_ADDRESS=G... USDC_CONTRACT=C... bash scripts/deploy-mainnet.sh --dry-run`. Expected: full command list, no network calls, exit 0; and exit 1 when admin equals deployer.
+- [x] **Step 4:** Commit: `git commit -m "feat(contracts): add guarded mainnet deploy script"`
+
+> **Status (2026-10-11):** DONE. `scripts/deploy-mainnet.sh` + `scripts/test-deploy-mainnet.sh` (11 checks green). Fixed vs testnet script: Nester `initialize` takes a single `--config` struct (testnet script still passes flat flags and is stale). Sets cap + allowlist gate, proposes admin transfer; the multisig must still run `accept_admin` (printed at the end).
 
 ### Task 3: Admin ownership to multisig + timelock
 
@@ -89,11 +91,13 @@ read -r -p "Type DEPLOY MAINNET to continue: " ok; [ "$ok" = "DEPLOY MAINNET" ] 
 - Test: `packages/contracts/contracts/vault/src/test.rs`, `packages/contracts/contracts/timelock/src/test.rs`
 - Reference: `packages/contracts/AUTH_AUDIT.md`
 
-- [ ] **Step 1: Discovery.** List every admin-gated entrypoint and how admin is set: `grep -rn "require_auth\|fn set_admin\|fn transfer_admin\|fn initialize" packages/contracts/contracts/*/src/lib.rs`. Record in the PR which contracts can change admin and whether a two-step transfer exists.
-- [ ] **Step 2: Write the failing test** (adapt names to the entrypoints found in Step 1): after admin is set to a second address, a call authorised only by the original deployer must panic with the typed `Unauthorized` error.
-- [ ] **Step 3:** Run it, confirm it fails if ownership transfer is missing, implement the minimal transfer (two-step: propose then accept) where absent.
-- [ ] **Step 4:** In `deploy-mainnet.sh`, pass `ADMIN_ADDRESS` as admin at `initialize` for every contract, and route sensitive changes through the `timelock` contract. Assert post-deploy by invoking an admin read and comparing to `ADMIN_ADDRESS`; script exits non-zero on mismatch.
-- [ ] **Step 5:** `make test && make clippy && make fmt-check`, then commit.
+- [x] **Step 1: Discovery.** List every admin-gated entrypoint and how admin is set: `grep -rn "require_auth\|fn set_admin\|fn transfer_admin\|fn initialize" packages/contracts/contracts/*/src/lib.rs`. Record in the PR which contracts can change admin and whether a two-step transfer exists.
+- [x] **Step 2: Write the failing test** (adapt names to the entrypoints found in Step 1): after admin is set to a second address, a call authorised only by the original deployer must panic with the typed `Unauthorized` error.
+- [x] **Step 3:** Run it, confirm it fails if ownership transfer is missing, implement the minimal transfer (two-step: propose then accept) where absent.
+- [x] **Step 4:** In `deploy-mainnet.sh`, pass `ADMIN_ADDRESS` as admin at `initialize` for every contract, and route sensitive changes through the `timelock` contract. Assert post-deploy by invoking an admin read and comparing to `ADMIN_ADDRESS`; script exits non-zero on mismatch.
+- [x] **Step 5:** `make test && make clippy && make fmt-check`, then commit.
+
+> **Status (2026-10-11):** DONE. Dev already had two-step `transfer_admin`/`accept_admin` on vault, registry, allocation, nester; Treasury lacked it (deployer would have stayed fee-treasury admin forever). Added with 3 tests (treasury 38/38). Timelock routing of later changes still goes through `propose_upgrade` framework.
 
 ### Task 4: Verify the lending and pool adapters against real mainnet protocols
 

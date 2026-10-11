@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Guard tests for deploy-mainnet.sh. Needs no network or funds: every case
+# either fails a guard before touching the chain, or runs with --dry-run.
+set -uo pipefail
+cd "$(dirname "$0")"
+
+SCRIPT=./deploy-mainnet.sh
+DEPLOYER=GDEPLOYERDEPLOYERDEPLOYERDEPLOYERDEPLOYERDEPLOYERDEPLOYERDEPL
+ADMIN=GADMINADMINADMINADMINADMINADMINADMINADMINADMINADMINADMINADMINAD
+USDC=CUSDCUSDCUSDCUSDCUSDCUSDCUSDCUSDCUSDCUSDCUSDCUSDCUSDCUSDCUSDCU
+XLM=CXLMXLMXLMXLMXLMXLMXLMXLMXLMXLMXLMXLMXLMXLMXLMXLMXLMXLMXLMXLMXLM
+BASE_ENV=(DEPLOYER_KEY=mainnet-deployer DEPLOYER_ADDRESS="$DEPLOYER" USDC_CONTRACT="$USDC" XLM_CONTRACT="$XLM" MAX_DEPOSIT_STROOPS=1000000000)
+
+fail=0
+check() {
+  local name="$1" want_rc="$2" want_text="$3"; shift 3
+  local out rc
+  out=$(env "$@" bash "$SCRIPT" 2>&1); rc=$?
+  if [ "$rc" -ne "$want_rc" ] || ! grep -qF -- "$want_text" <<<"$out"; then
+    echo "FAIL: $name (rc=$rc, wanted rc=$want_rc and text: $want_text)"; echo "$out" | tail -5
+    fail=1
+  else
+    echo "ok:   $name"
+  fi
+}
+
+check "rejects a secret key argument" 1 "key alias" \
+  "${BASE_ENV[@]}" ADMIN_ADDRESS="$ADMIN" bash "$SCRIPT" SABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVWX
+check "requires ADMIN_ADDRESS" 1 "ADMIN_ADDRESS" \
+  "${BASE_ENV[@]}" ADMIN_ADDRESS= DRY_RUN=1
+check "refuses admin equal to deployer" 1 "admin must differ from deployer" \
+  "${BASE_ENV[@]}" ADMIN_ADDRESS="$DEPLOYER" DRY_RUN=1
+check "requires MAX_DEPOSIT_STROOPS" 1 "MAX_DEPOSIT_STROOPS" \
+  DEPLOYER_KEY=mainnet-deployer DEPLOYER_ADDRESS="$DEPLOYER" USDC_CONTRACT="$USDC" XLM_CONTRACT="$XLM" ADMIN_ADDRESS="$ADMIN" DRY_RUN=1
+check "refuses a non-contract USDC id" 1 "USDC_CONTRACT" \
+  "${BASE_ENV[@]}" USDC_CONTRACT=GNOTACONTRACT ADMIN_ADDRESS="$ADMIN" DRY_RUN=1
+
+out=$(env "${BASE_ENV[@]}" ADMIN_ADDRESS="$ADMIN" DRY_RUN=1 bash "$SCRIPT" 2>&1); rc=$?
+[ "$rc" -eq 0 ] || { echo "FAIL: dry run rc=$rc"; echo "$out" | tail -8; fail=1; }
+for needle in \
+  "Public Global Stellar Network ; September 2015" \
+  "set_max_deposit" \
+  "set_deposit_allowlist_enabled" \
+  "transfer_admin" \
+  "--new_admin $ADMIN"   '--config {"vault_usdc":"C_DRYRUN_Vault_USDC"'   "invoke C_DRYRUN_Treasury -- transfer_admin"; do
+  grep -qF -- "$needle" <<<"$out" && echo "ok:   dry run contains: $needle" \
+    || { echo "FAIL: dry run missing: $needle"; fail=1; }
+done
+grep -qE "testnet|friendbot" <<<"$out" && { echo "FAIL: dry run mentions testnet/friendbot"; fail=1; } || echo "ok:   dry run never touches testnet"
+
+exit "$fail"
