@@ -1740,6 +1740,10 @@ fn test_harvest_rate_limit_is_per_user() {
     vault.deposit(&alice, &(1_000 * XLM), &0);
     vault.deposit(&bob, &(1_000 * XLM), &0);
 
+    // A harvest at ledger time 0 is recorded as 0, which the contract reads as
+    // "never harvested", so the rate limit would not engage. Real ledgers never
+    // sit at 0; move the clock off it, as the sibling harvest tests do.
+    advance_time(&env, 1);
     vault.harvest(&alice);
     // Alice's harvest must not block Bob.
     assert!(vault.try_harvest(&bob).is_ok());
