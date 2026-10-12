@@ -238,9 +238,11 @@ it("does not throw for testnet", () => {
 **Files:**
 - Reference: `apps/dapp/frontend/tests/smoke/`, `docs/smoke-test-runbook.md`, `.github/workflows/e2e-testnet-nightly.yml`
 
-- [ ] **Step 1:** Keep nightly testnet e2e green as the regression gate.
-- [ ] **Step 2:** Add a manual mainnet smoke section to the runbook: connect, deposit 1 USDC, check share and quote match, withdraw, check indexer and balances reconcile.
-- [ ] **Step 3:** Commit.
+- [x] **Step 1:** Keep nightly testnet e2e green as the regression gate.
+- [x] **Step 2:** Add a manual mainnet smoke section to the runbook: connect, deposit 1 USDC, check share and quote match, withdraw, check indexer and balances reconcile.
+- [x] **Step 3:** Commit.
+
+> **Status (2026-10-12):** DONE (documentation). Wrote `docs/mainnet-smoke-test.md` as a separate manual runbook (the existing `smoke-test-runbook.md` is the CI testnet one). It was checked against the code: the vault has no `has_role` entrypoint, so admin handover is verified by simulating an admin-only call; the treasury does expose `has_role`. Nightly testnet e2e (`e2e-testnet-nightly.yml`) is unchanged as the regression gate. Running it needs real funds and the deploy, so it is a launch-day action.
 
 ---
 
