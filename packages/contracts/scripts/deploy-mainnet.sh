@@ -17,6 +17,8 @@
 #   USDC_CONTRACT        mainnet USDC Stellar Asset Contract id (C...)
 #   XLM_CONTRACT         mainnet native XLM Stellar Asset Contract id (C...)
 #   MAX_DEPOSIT_STROOPS  initial per-deposit cap, in 7-decimal base units
+#   MAINNET_RPC_URL      https Soroban RPC endpoint from your provider; SDF does not
+#                        run a public mainnet RPC, so there is deliberately no default
 #   TVL_CAP_STROOPS      initial cap on total vault assets, same units; bounds
 #                        total exposure (MAX_DEPOSIT only bounds one deposit)
 #
@@ -30,7 +32,6 @@
 set -euo pipefail
 
 NETWORK="mainnet"
-RPC_URL="https://soroban-rpc.mainnet.stellar.org"
 NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
 WASM_DIR="./target/wasm32-unknown-unknown/release"
 OUTPUT_FILE="./scripts/deployed-mainnet.env"
@@ -57,6 +58,9 @@ XLM_CONTRACT="${XLM_CONTRACT:-}"
 [[ "$XLM_CONTRACT" == C* ]] || die "XLM_CONTRACT must be the mainnet XLM contract id (C...)."
 MAX_DEPOSIT_STROOPS="${MAX_DEPOSIT_STROOPS:-}"
 [[ "$MAX_DEPOSIT_STROOPS" =~ ^[1-9][0-9]*$ ]] || die "MAX_DEPOSIT_STROOPS must be a positive integer; an unbounded cap is not allowed on mainnet."
+MAINNET_RPC_URL="${MAINNET_RPC_URL:-}"
+[[ "$MAINNET_RPC_URL" == https://* ]] || die "MAINNET_RPC_URL must be an https:// Soroban RPC endpoint from your provider (there is no public default)."
+RPC_URL="$MAINNET_RPC_URL"
 TVL_CAP_STROOPS="${TVL_CAP_STROOPS:-}"
 [[ "$TVL_CAP_STROOPS" =~ ^[1-9][0-9]*$ ]] || die "TVL_CAP_STROOPS must be a positive integer; unbounded total exposure is not allowed on mainnet."
 
@@ -87,6 +91,8 @@ if [ -z "$DRY_RUN" ]; then
   for wasm in vault_token vault_contract treasury_contract yield_registry_contract allocation_strategy_contract nester_contract; do
     stellar contract optimize --wasm "$WASM_DIR/${wasm}.wasm" --wasm-out "$WASM_DIR/${wasm}_opt.wasm"
   done
+  # Refuse to deploy anything the network would reject for size.
+  bash ./scripts/check-wasm-size.sh "$WASM_DIR" || die "A contract exceeds the mainnet size limit; nothing was deployed."
 fi
 
 STELLAR_ARGS=(--source-account "$DEPLOYER_KEY" --network "$NETWORK" --rpc-url "$RPC_URL" --network-passphrase "$NETWORK_PASSPHRASE")

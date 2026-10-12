@@ -10,10 +10,16 @@
 
 **Spec:** `docs/launch-readiness-register.md` (authoritative status), `docs/LAUNCH_GO_NO_GO.md` (gate checklist). **Out of scope by decision (2026-10-11):** fiat offramp (settlements, Paystack/Flutterwave payout, KYC, settlement security fixes) and the Prometheus AI layer.
 
+## Launch blockers found while executing (2026-10-12)
+
+1. **The vault contract is too large to deploy to mainnet.** Optimized, `vault_contract` is 169,061 bytes; mainnet's `contract_max_size_bytes` is 131,072 (read live with `stellar network settings`). It needs about 38 KB removed (split features out, or trim). `scripts/check-wasm-size.sh` now fails the deploy before anything is spent. This was true before this branch (the TVL cap adds roughly 1 KB); it needs an architecture decision.
+2. **The vault test `test_harvest_rate_limit_is_per_user` fails on clean dev.** Fix or explain before tagging an audit candidate.
+3. **`soroban-rpc.mainnet.stellar.org` does not exist.** Fixed here for the deploy script, API example and dapp default; production needs a provider endpoint.
+
 ## Global Constraints
 
 - Mainnet passphrase is exactly `Public Global Stellar Network ; September 2015`.
-- Mainnet RPC `https://soroban-rpc.mainnet.stellar.org` (already in `lib/networks.ts`); Horizon `https://horizon.stellar.org`.
+- Mainnet RPC: SDF runs no public mainnet Soroban RPC (`soroban-rpc.mainnet.stellar.org` does not resolve). Use a provider endpoint (`https://mainnet.sorobanrpc.com` is a working public node, checked 2026-10-12); Horizon `https://horizon.stellar.org`.
 - No secret key is ever committed, logged, or passed on a command line that lands in shell history; deployer uses a key alias or hardware-backed identity.
 - Contract admin on mainnet is a multisig/timelock, never the deployer account.
 - High/critical audit findings block the launch tag (per `docs/launch-readiness-process.md`).

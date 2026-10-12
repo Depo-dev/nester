@@ -24,6 +24,7 @@ to be recorded against.
 | `/v1/` API contract is frozen with a stated versioning policy | #458 (Trident) | | `docs/API_STABILITY.md` (Trident repo) reviewed and published | |
 | Full pre-launch verification checklist executed | #459 (Trident) | | `docs/LAUNCH_CHECKLIST.md` (Trident repo), all rows Pass | |
 | Rollback rehearsed end-to-end with wall-clock time recorded | #460 (Trident) | | `docs/ROLLBACK_RUNBOOK.md` (Trident repo) rehearsal section completed | |
+| Every contract fits mainnet's 131072-byte size limit after optimization | mainnet plan blocker 1 | | `bash packages/contracts/scripts/check-wasm-size.sh` exits 0 on a fresh optimized build (vault is currently 169061 bytes: FAILS) | |
 | External contract audit complete; no open Critical/High findings | SC-14 | | Report linked from `SECURITY.md`; mainnet deploy uses the audited commit hash | |
 | Mainnet contracts deployed from the audited commit and verifiable against source | mainnet plan T2 | | `deployed-mainnet.env` commit hash matches the audit; `packages/contracts/scripts/VERIFY.md` against the mainnet ids | |
 | Contract admin held by the multisig, not the deployer, on every contract | mainnet plan T3 | | `accept_admin` run for all six; treasury `has_role` and a `--send=no` admin call from the deployer (see `docs/mainnet-smoke-test.md` step 0) | |
