@@ -260,7 +260,7 @@ it("does not throw for testnet", () => {
 **Files:**
 - Modify: `docs/LAUNCH_GO_NO_GO.md`
 
-- [ ] **Step 1:** Remove offramp-related rows from the checklist, assign a named owner and verification result to each remaining row (this is a team meeting; the file stays a template until then).
+- [x] **Step 1:** Remove offramp-related rows from the checklist, assign a named owner and verification result to each remaining row (this is a team meeting; the file stays a template until then).
 - [ ] **Step 2:** Rehearse rollback end-to-end and write down wall-clock time.
 - [ ] **Step 3:** Launch sequence: deploy contracts (audited hash) → ownership to multisig → low cap → allowlist or invite-only users → monitor 48h → raise cap via timelock.
 - [ ] **Step 4:** Tag release, publish `deployed-mainnet.env` and `VERIFY.md` verification so anyone can confirm deployed code matches source.
@@ -273,3 +273,5 @@ it("does not throw for testnet", () => {
 - **Placeholders:** Tasks 3, 4 and 5 start with a discovery step because the exact entrypoint names were not read for this plan; the failing tests there must be written against the names discovered. This is the one deliberate gap.
 - **Types:** `assertNetworkConfigured` (Task 10) is the only cross-task function; `DepositCapExceeded` (Task 5) is consumed by Task 11.
 - **Review Focus:** placeholder IDs (Task 10), network mismatch (Task 7), indexer retention gap (Task 8), cap/pause UX (Tasks 5, 11), old-admin revert (Task 3).
+
+> **Status (2026-10-12):** Step 1 DONE: the checklist had no offramp rows to remove; added 10 rows for this branch's work (`docs/LAUNCH_GO_NO_GO.md`). Owners and verification results stay blank on purpose: that is a team meeting. Steps 2-4 (rollback rehearsal, launch sequence, tagging and publishing verification) are launch-day actions and stay unchecked. Reuse `scripts/mainnet-deploy-dryrun.sh` for the rehearsal.
