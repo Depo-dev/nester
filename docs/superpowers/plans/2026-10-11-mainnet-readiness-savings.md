@@ -12,7 +12,11 @@
 
 ## Launch blockers found while executing (2026-10-12)
 
-1. **The vault contract is too large to deploy to mainnet.** Optimized, `vault_contract` is 169,061 bytes; mainnet's `contract_max_size_bytes` is 131,072 (read live with `stellar network settings`). It needs about 38 KB removed (split features out, or trim). `scripts/check-wasm-size.sh` now fails the deploy before anything is spent. This was true before this branch (the TVL cap adds roughly 1 KB); it needs an architecture decision.
+1. **The vault contract is still too large to deploy to mainnet.** Mainnet's `contract_max_size_bytes` is 131,072 (read live with `stellar network settings`). Optimized, `vault_contract` was 169,061 bytes (168,157 on dev). This branch converts `///` doc comments to `//` (soroban embeds doc comments in the contract spec, 44 KB of it), which brings it to **150,037 bytes: still 18,965 over**. Measured, not guessed:
+   - extra `wasm-opt` passes (`-Oz --converge`): about -3.5 KB, needs a non-standard toolchain.
+   - feature-gating the 20 unreferenced read-only getters: -5.1 KB (about 257 bytes per entrypoint).
+   - the 126 exported entrypoints, not any one function, are the cost; code is a flat spread over ~1,400 functions. The remaining unreferenced entrypoints are mostly safety controls (guardian halt, breaker recovery, emergency-withdraw queue), which I did not gate to reach a number.
+   Getting under the limit needs a structural change: split the vault (for example move admin/config and the emergency queue into a companion contract) or cut features. That is an architecture and audit-scope decision. `scripts/check-wasm-size.sh` fails the deploy before anything is spent.
 2. **The vault test `test_harvest_rate_limit_is_per_user` fails on clean dev.** Fix or explain before tagging an audit candidate.
 3. **`soroban-rpc.mainnet.stellar.org` does not exist.** Fixed here for the deploy script, API example and dapp default; production needs a provider endpoint.
 

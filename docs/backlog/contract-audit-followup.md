@@ -40,7 +40,7 @@ Added for the guarded mainnet launch and not yet reviewed externally:
 
 ## Pre-Audit Checklist
 
-**Known blocker (size):** the optimized vault is 169,061 bytes, over mainnet's 131,072-byte contract limit, so it cannot be deployed as is. Resolve before the audit candidate is tagged, since the fix changes the audited code.
+**Known blocker (size):** the optimized vault is 150,037 bytes (169,061 before this branch's doc-comment change), over mainnet's 131,072-byte contract limit, so it cannot be deployed as is. Resolve before the audit candidate is tagged, since the fix changes the audited code.
 
 **Known blocker (test):** `vault-contract` test `test_harvest_rate_limit_is_per_user` fails on clean `dev` (observed 2026-10-12). Fix it or document it as an accepted, explained failure before tagging an audit candidate.
 
