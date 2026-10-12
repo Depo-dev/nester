@@ -55,12 +55,12 @@ pub struct DeltaInput {
 }
 
 // Build a slippage-safe execution plan from raw strategy deltas.
-// 
+//
 // `min_assets_out_for_withdrawal` converts a gross withdrawal amount into
 // its slippage-adjusted floor (injected so this function has no vault-token
 // contract dependency — the real vault passes a closure around
 // `rebalance_min_assets_out`, tests pass a simple percentage function).
-// 
+//
 // Returns the plan plus the total absolute value moved across all legs, so
 // the caller can enforce the per-rebalance value cap.
 pub fn build_plan(

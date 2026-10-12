@@ -769,12 +769,12 @@ fn get_yield_registry(env: &Env) -> Option<Address> {
 
 // Look up `source_id`'s adapter and move `delta` through it: a positive delta
 // deposits into the protocol, a negative delta withdraws from it.
-// 
+//
 // Every step — the registry read, the status check, and the adapter call
 // itself — uses `try_invoke_contract` so a reverting third-party protocol can
 // never abort the whole rebalance. Any failure returns
 // [`AdapterOutcome::Failed`] and the caller isolates that one source.
-// 
+//
 // Sources that are not `Active` (paused, degraded, deprecated) are reported
 // as `Failed` so the caller skips them without touching allocations.
 fn move_via_adapter(
@@ -891,7 +891,7 @@ fn move_via_adapter(
 
 // Authorize `adapter` to `transfer` exactly `amount` of `token` out of this
 // vault, scoped to the next invocation only.
-// 
+//
 // This is the canonical Soroban mechanism for a contract to permit a nested
 // transfer from its own address. The grant names the token, the exact
 // arguments, and nothing else, so the adapter cannot move a different amount,
@@ -1190,7 +1190,7 @@ fn clear_first_deposit_at(env: &Env, user: &Address) {
 // Seconds since `user`'s first deposit into their current position. Reset
 // only by a full exit (see [`clear_first_deposit_at`]); unaffected by
 // partial withdrawals or additional deposits.
-// 
+//
 // Existence is checked explicitly rather than comparing the stored
 // timestamp to zero — a deposit genuinely made at ledger timestamp 0 (the
 // start of any fresh test/dev chain) is a legitimate value, not a sentinel
@@ -1511,7 +1511,7 @@ fn vested_amount(stream: &YieldVestingStream, now: u64) -> i128 {
 // was last touched, adding it to `TotalAssets` exactly like `report_yield`
 // already did before this stream existed. A no-op (cheap: one storage read)
 // when there is no active stream or nothing has vested yet.
-// 
+//
 // Must be called before any operation that reads `TotalAssets`/share price
 // in a way that matters for fairness between holders — deposit, withdraw,
 // harvest, and report_yield itself (so a new report correctly folds in any
@@ -1568,7 +1568,7 @@ fn release_vested_yield(env: &Env) {
 // `withdraw`, `report_yield`, `unlock_position`, and `break_lock`, so this
 // one call site covers all of them rather than needing to be duplicated
 // at each.
-// 
+//
 // A no-op when there are no open locks (the common case for a vault with
 // no locked depositors) or when the vault-wide open-lock count exceeds
 // `MAX_TOTAL_OPEN_LOCKS` (defensive; `deposit_locked` itself enforces the
@@ -1667,7 +1667,7 @@ fn settle_locked_boost(env: &Env, total_assets: i128, total_supply: i128, yield_
 // frequently cannot reset an in-flight stream to grief holders who were
 // about to receive it, and cannot accidentally double-pay by starting a
 // second concurrent stream either.
-// 
+//
 // `amount` may be negative (an impairment): it is applied to `TotalAssets`
 // immediately rather than vested, mirroring the pre-vesting behaviour for
 // losses — there is no sniping concern to guard against for a loss (nobody
@@ -2230,7 +2230,7 @@ pub struct VaultContract;
 #[contractimpl]
 impl VaultContract {
     // Initialise the vault, setting `admin` as the sole Admin.
-    // 
+    //
     // # Token immutability
     // `token_address` and `vault_token_address` are written once here and
     // never updated again.  No admin function exists to change either address
@@ -2357,7 +2357,7 @@ impl VaultContract {
     }
 
     // Enable or disable the mainnet deposit allowlist gate.
-    // 
+    //
     // The gate is disabled by default for backwards compatibility. When it is
     // enabled, only addresses explicitly added with
     // [`Self::set_deposit_allowlisted`] may deposit.
@@ -2666,10 +2666,10 @@ impl VaultContract {
 
     // Bind this vault to the YieldRegistry so `rebalance` can resolve each
     // source's adapter and report adapter failures. Admin only.
-    // 
+    //
     // Optional: with no registry configured the vault falls back to pure
     // bookkeeping (pre-adapter behaviour) rather than refusing to rebalance.
-    // 
+    //
     // **Deployment requirement:** grant this vault the `Operator` role on the
     // registry (`registry.grant_role(admin, vault, Operator)`). The vault
     // reports the adapter failures it observes during rebalance, and without
@@ -2974,7 +2974,7 @@ impl VaultContract {
 
     // Claim the pending yield accumulated for `user` by previous `report_yield`
     // calls (where the caller was `user`).
-    // 
+    //
     // Steps (issue #518):
     //  1. Calculate accrued yield since last harvest.
     //  2. Deduct performance fee — only on net positive yield, never on impairment.
@@ -2982,7 +2982,7 @@ impl VaultContract {
     //     treasury, preserving the exchange rate for every other holder.
     //  4. Leave the net yield compounded in `user`'s remaining shares.
     //  5. Update `LastHarvestAt` timestamp for `user`.
-    // 
+    //
     // Returns a zero-filled `HarvestResult` with `compounded: false` when the
     // user has no pending yield, so callers can always call this safely.
     pub fn harvest(env: Env, user: Address) -> HarvestResult {
@@ -3001,9 +3001,7 @@ impl VaultContract {
         // 50-variant cap.
         let now = env.ledger().timestamp();
         let last_harvest = get_last_harvest_at(&env, &user);
-        if last_harvest != 0
-            && now < last_harvest.saturating_add(get_min_harvest_interval(&env))
-        {
+        if last_harvest != 0 && now < last_harvest.saturating_add(get_min_harvest_interval(&env)) {
             panic_with_error!(&env, ContractError::TimelockNotReady);
         }
 
@@ -3176,7 +3174,7 @@ impl VaultContract {
     }
 
     // Move funds between yield sources to match strategy targets.
-    // 
+    //
     // Bookkeeping-only in this contract: actual on-chain transfers to
     // yield-source adapters are appended once those adapters land. The
     // rebalance is atomic — either every delta applies or the call panics.
@@ -3575,7 +3573,7 @@ impl VaultContract {
     // Operator hook used by deposit/yield-routing flows to record that a
     // known amount has been deployed to a specific yield source. Keeps the
     // vault's per-source bookkeeping in sync with off-chain settlement.
-    // 
+    //
     // Returns `true` when the allocation was recorded and `false` when the
     // source was skipped because it is not `Active` (paused, degraded,
     // deprecated) or its registry lookup failed. Skipping is silent-by-return
@@ -3862,7 +3860,7 @@ impl VaultContract {
         let tvl_cap = Self::get_tvl_cap(env.clone());
         if get_total_assets(&env)
             .checked_add(amount)
-            .map_or(true, |total| total > tvl_cap)
+            .is_none_or(|total| total > tvl_cap)
         {
             panic_with_error!(&env, ContractError::ExceedsLimit);
         }
@@ -4199,7 +4197,7 @@ impl VaultContract {
     // Deposit `amount` for a fixed `lock_duration_secs`, in exchange for a
     // yield boost proportional to that term. `lock_duration_secs` must
     // match one of the admin-configured tiers exactly (`get_lock_tiers`).
-    // 
+    //
     // Reuses `deposit_internal`'s share-minting math (so share price stays
     // a single global quantity — no separate accounting fork for locked
     // vs. flexible deposits), then immediately records the minted shares
@@ -4642,17 +4640,17 @@ impl VaultContract {
 
     // Emergency exit from **all** active yield-source positions in a single
     // transaction.
-    // 
+    //
     // Iterates every source that currently holds a live allocation, pulls the
     // deployed funds back into the vault's liquid reserves, and emits an
     // `EmergencyWithdraw` event per position carrying the amount and protocol.
     // Inactive positions (zero allocation) are skipped.
-    // 
+    //
     // Partial success is allowed: if unwinding a position fails it is recorded
     // in `failed` and iteration continues, so one bad position cannot block the
     // rest from exiting. The returned [`EmergencyWithdrawAllResult`] lists both
     // the succeeded and failed withdrawals.
-    // 
+    //
     // Authorization: callable only by the position owner (`user`).
     pub fn emergency_withdraw_all(env: Env, user: Address) -> EmergencyWithdrawAllResult {
         with_reentrancy_guard(env, |env| Self::emergency_withdraw_all_internal(env, user))
@@ -4892,7 +4890,7 @@ impl VaultContract {
     // Returns the **gross**, pre-fee asset value of `shares` (the raw
     // share-price conversion, like an EIP-4626 `previewRedeem` of the
     // underlying price).
-    // 
+    //
     // ⚠️ Do **not** pass this value straight through as `min_assets_out` to
     // [`VaultContract::withdraw`]. A fee-bearing withdrawal deducts a
     // performance fee (on realized yield) and/or an early-withdrawal fee, so
@@ -4989,7 +4987,7 @@ impl VaultContract {
 
     // Returns the amount the caller actually receives after all fees —
     // safe to use directly as `min_assets_out` in [`VaultContract::withdraw`].
-    // 
+    //
     // Worst-case scenario: assumes the entire gross amount is yield (maximum
     // performance fee) and that the lock period is still active (early-withdrawal
     // fee applies). Callers that know the user's cost basis or lock status can
@@ -5243,7 +5241,7 @@ impl VaultContract {
     // -----------------------------------------------------------------------
 
     // Proposes a new WASM upgrade for the vault.
-    // 
+    //
     // Requires Upgrader role and enforces MIN_UPGRADE_DELAY_VAULT (48 hours).
     pub fn propose_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>, eta: u64) {
         AccessControl::require_role(&env, &admin, Role::Upgrader);
@@ -5257,7 +5255,7 @@ impl VaultContract {
     }
 
     // Cancels a pending WASM upgrade for the vault.
-    // 
+    //
     // Requires Upgrader role.
     pub fn cancel_upgrade(env: Env, admin: Address) {
         AccessControl::require_role(&env, &admin, Role::Upgrader);
@@ -5265,7 +5263,7 @@ impl VaultContract {
     }
 
     // Executes a matured WASM upgrade for the vault.
-    // 
+    //
     // Execution is permissionless after maturity.
     pub fn execute_upgrade(env: Env, caller: Address, wasm_hash: BytesN<32>) {
         nester_common::Upgrade::execute_upgrade(&env, &caller, wasm_hash);

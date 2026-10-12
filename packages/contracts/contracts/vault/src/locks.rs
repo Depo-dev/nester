@@ -192,7 +192,7 @@ pub fn total_weight(
 // each `LockedPosition.shares` and to `vault_token`'s total supply via
 // `mint_boost_shares`; the caller is responsible for actually invoking
 // that mint).
-// 
+//
 // Skipped (returns `Ok(0)` immediately) when there are no open locks —
 // the overwhelmingly common case for a vault with no locked depositors —
 // so a vault that never uses this feature pays zero extra cost on every

@@ -193,7 +193,7 @@ pub fn set_max_fill_share_bps(env: &Env, bps: u32) {
 }
 
 // Enqueue (or extend) a withdrawal request for `user`.
-// 
+//
 // A user may hold at most one open queue position at a time. Calling this
 // again while a position is open *extends* it — adds `additional_shares` to
 // the outstanding request — rather than creating a second queue position,
@@ -266,7 +266,7 @@ pub(crate) fn create_new_entry(env: &Env, user: &Address, shares: i128) -> Queue
 // removed from the user's balance — cancellation is pure bookkeeping and
 // needs no asset transfer. Returns the (already-unburned) share amount that
 // was outstanding, for the caller's event/logging purposes.
-// 
+//
 // Does not touch any other entry's `seq`: this is an O(1) map removal.
 pub fn cancel(env: &Env, user: &Address) -> i128 {
     let seq = get_user_seq(env, user)
@@ -305,19 +305,19 @@ fn advance_head_past_gaps(env: &Env) {
 
 // Plan how much liquidity to hand to each open entry this round, starting
 // at `head` and touching at most `max_entries` *existing* entries.
-// 
+//
 // `available_liquidity` is the total assets available to this round.
 // `shares_to_assets` converts a share amount to its current asset value at
 // today's share price (injected so this function stays free of any vault
 // token contract dependency).
-// 
+//
 // Per-entry fill is capped at `available_liquidity * max_fill_share_bps /
 // 10_000` so one very large request cannot absorb an entire round's
 // liquidity — smaller requests behind it still progress in the same call.
 // This is a fairness refinement on top of strict seq ordering, not a
 // replacement for it: the head entry is always considered, and always
 // filled, before any entry behind it.
-// 
+//
 // Pure with respect to storage: reads entries but does not mutate them.
 // Callers must invoke [`apply_fill`] once the real asset transfer for each
 // planned fill has succeeded.
