@@ -142,6 +142,8 @@ read -r -p "Type DEPLOY MAINNET to continue: " ok; [ "$ok" = "DEPLOY MAINNET" ] 
 - [ ] **Step 4:** Fix all Critical/High, document Medium acceptance, retest. Publish the report, update `SECURITY.md` and the website security page status.
 - [ ] **Step 5:** Mainnet deploy must use the audited commit hash; record it in `deployed-mainnet.env` header and `VERIFY.md` steps.
 
+> **Status (2026-10-12):** Partially prepared; NOT done. Updated the audit scope doc (adapters, TVL cap, treasury admin transfer, deploy script) and recorded a blocker: `test_harvest_rate_limit_is_per_user` fails on clean dev and must be fixed or explained before an audit candidate is tagged. Engaging the firm, setting a date, tagging `audit-candidate-1`, remediation and publishing the report are yours and remain unchecked.
+
 ---
 
 ## Phase C: API and indexer
