@@ -227,9 +227,11 @@ it("does not throw for testnet", () => {
 - Test: matching `*.test.tsx`
 
 - [ ] **Step 1:** Show the real mainnet warning for real funds (replace "tokens have no real value" banner logic when network is mainnet) with a test asserting the copy per network.
-- [ ] **Step 2:** Deposit modal handles `DepositCapExceeded` (Task 5) and the global pause (`503` reason) with specific messages; tests for both.
-- [ ] **Step 3:** Explorer links use the mainnet explorer on mainnet (assert in `utils/explorer` test).
-- [ ] **Step 4:** Commit.
+- [x] **Step 2:** Deposit modal handles `DepositCapExceeded` (Task 5) and the global pause (`503` reason) with specific messages; tests for both.
+- [x] **Step 3:** Explorer links use the mainnet explorer on mainnet (assert in `utils/explorer` test).
+- [x] **Step 4:** Commit.
+
+> **Status (2026-10-12):** DONE except Step 1. Step 2: deposit and withdraw now show the contract's cap/allowlist/circuit-breaker/minimum rejections as plain text (`lib/stellar/contract-errors.ts`) and read the API's public `GET /api/v1/money-path/status`, which the dapp never called, to explain a global pause and block submit (`hooks/useMoneyPathStatus.ts`, deposit modal, withdraw modal). Step 3: nothing to change; `explorerUrl` is already per network. Step 1 (mainnet banner copy) left for you: it is product copy, not a safety control. Note the real deposit modal is `components/vault/depositModal.tsx`, not the one in `vault-action-modals.tsx`. 23 new tests; full suite 366 pass; 2 test files fail to load on baseline (`@sentry/nextjs` absent from linked node_modules).
 
 ### Task 12: Mainnet e2e smoke
 

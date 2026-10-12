@@ -10,6 +10,7 @@ import {
 } from "@stellar/stellar-sdk";
 
 import { NETWORKS, DEFAULT_NETWORK } from "@/lib/networks";
+import { describeDepositRejection } from "@/lib/stellar/contract-errors";
 import { assertNetworkMatchesBuild } from "@/lib/stellar/network-guard";
 import { readNetworkId } from "@/lib/storageKeys";
 import { assertValidContractId, getContractId } from "@/lib/contracts";
@@ -306,9 +307,8 @@ export async function buildDepositTransaction(
   const sim = await server.simulateTransaction(tx);
 
   if (SorobanRpc.Api.isSimulationError(sim)) {
-    throw new TransactionFailedError(
-      (sim as SorobanRpc.Api.SimulateTransactionErrorResponse).error
-    );
+    const rawReason = (sim as SorobanRpc.Api.SimulateTransactionErrorResponse).error;
+    throw new TransactionFailedError(describeDepositRejection(rawReason) ?? rawReason);
   }
 
   const assembled = SorobanRpc.assembleTransaction(tx, sim).build();
